@@ -9,6 +9,7 @@
 #include "skybox.h"
 #include "water.h"
 #include "internal.h"
+#include "detail.h"
 
 namespace Render
 {
@@ -23,6 +24,7 @@ struct BrushConstants
 struct BrushShader : BaseShader
 {
     GLint u_scroll;
+    GLint u_detailScale;
 };
 
 static const VertexAttrib s_vertexAttribs[] = {
@@ -37,28 +39,42 @@ const VertexFormat g_brushVertexFormat{ sizeof(gl3_brushvert_t), s_vertexAttribs
 static const ShaderUniform s_uniforms[] = {
     { "u_texture", 0 },
     { "u_lightmap", 1 },
-    { "u_scroll", &BrushShader::u_scroll }
+    { "u_detail", 2 },
+    { "u_scroll", &BrushShader::u_scroll },
+    { "u_detailScale", &BrushShader::u_detailScale },
 };
 
 static constexpr ShaderOption s_shaderOptions[] = {
     { "ALPHA_TEST", 1 },
     { "MULTI_STYLE", 1 },
-    { "HAS_DLIGHTS", 1 }
+    { "HAS_DLIGHTS", 1 },
+    { "DETAIL", 1 }
+};
+
+static constexpr ShaderOption s_shaderOptionsUnlit[] = {
+    { "DETAIL", 1 }
 };
 
 // must match s_shaderOptions
-struct BrushShaderOptions
+struct ShaderOptions
 {
     unsigned alphaTest;
     unsigned multiStyle;
     unsigned hasDlights;
+    unsigned detail;
+};
+
+// must match s_shaderOptionsUnlit
+struct ShaderOptionsUnlit
+{
+    unsigned detail;
 };
 
 // lightmapped shaders
 static BrushShader s_shaders[shaderVariantCount(s_shaderOptions)];
 
 // not lightmapped, color modulated by renderColor
-static BrushShader s_shaderUnlit;
+static BrushShader s_shadersUnlit[shaderVariantCount(s_shaderOptionsUnlit)];
 
 gl3_worldmodel_t g_worldmodel_static;
 
@@ -77,7 +93,7 @@ static bool s_hasSkySurfaces = false;
 void brushInit()
 {
     shaderRegister(s_shaders, "lightmapped", s_vertexAttribs, s_uniforms, s_shaderOptions);
-    shaderRegister(s_shaderUnlit, "unlit", s_vertexAttribs, s_uniforms);
+    shaderRegister(s_shadersUnlit, "unlit", s_vertexAttribs, s_uniforms, s_shaderOptionsUnlit);
 }
 
 static void BuildLightmapAndVertexBuffer(model_t *model)
@@ -100,6 +116,9 @@ void brushLoadWorldModel(model_t *engineModel)
     memset(g_worldmodel, 0, sizeof(*g_worldmodel));
     internalLoadBrushModel(engineModel, g_worldmodel);
     BuildLightmapAndVertexBuffer(engineModel);
+
+    // invalidate old detail textures, if any
+    detailInvalidate();
 }
 
 void brushFreeWorldModel()
@@ -307,13 +326,13 @@ static float ScrollAmount(cl_entity_t *entity, gl3_texture_t *texture)
     }
 }
 
-static void DrawSurfaces(cl_entity_t *entity, GLint scrollUniformLocation, GLuint textureOverride)
+static void DrawSurfaces(cl_entity_t *entity, BrushShader *shader, GLuint textureOverride)
 {
     // index buffer is dynamic
     commandBindVertexBuffer(g_worldmodel->vertex_buffer, g_brushVertexFormat);
 
     float prevScroll = 0;
-    commandUniform1f(scrollUniformLocation, prevScroll);
+    commandUniform1f(shader->u_scroll, prevScroll);
 
     if (textureOverride)
     {
@@ -347,13 +366,18 @@ static void DrawSurfaces(cl_entity_t *entity, GLint scrollUniformLocation, GLuin
         {
             DrawIndexBuffer(texture->basevertex);
             prevScroll = scroll;
-            commandUniform1f(scrollUniformLocation, prevScroll);
+            commandUniform1f(shader->u_scroll, prevScroll);
         }
 
         if (!textureOverride)
         {
-            GLuint textureName = TextureAnimation(entity, texture)->gl_texturenum;
+            gl3_texture_t *animated = TextureAnimation(entity, texture);
+            GLuint textureName = animated->gl_texturenum;
             commandBindTexture(0, GL_TEXTURE_2D, textureName);
+
+            // FIXME: does the detail texture follow the "animated" texture?
+            int textureIndex = (int)(animated - g_worldmodel->textures);
+            detailSetTextureAndScale(textureIndex, shader->u_detailScale);
         }
 
         for (int j = 0; j < texture->numdrawsurfaces; j++)
@@ -472,22 +496,23 @@ static void DrawAllSurfaces(cl_entity_t *entity, bool lightmapped, bool alphaTes
 
     if (lightmapped)
     {
-        //g_engfuncs.Con_Printf("multi styles? %d\n", multiStyle ? 1 : 0);
-
-        BrushShaderOptions options{};
+        ShaderOptions options{};
         options.alphaTest = alphaTest;
         options.multiStyle = multiStyle;
         options.hasDlights = (g_state.dlightCount > 0);
+        options.detail = detailIsActive();
         shader = &shaderSelect(s_shaders, s_shaderOptions, options);
     }
     else
     {
-        shader = &s_shaderUnlit;
+        ShaderOptionsUnlit options{};
+        options.detail = detailIsActive();
+        shader = &shaderSelect(s_shadersUnlit, s_shaderOptionsUnlit, options);
     }
 
     commandUseProgram(shader);
 
-    DrawSurfaces(entity, shader->u_scroll, textureOverride);
+    DrawSurfaces(entity, shader, textureOverride);
 
     // decal indices are stuffed into the same index buffer
     GL3_ASSERT(s_indexCount == s_indexLastDraw);

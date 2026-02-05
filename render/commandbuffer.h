@@ -59,10 +59,11 @@ void commandDepthMask(GLboolean flag);
 void commandCullFace(GLboolean enable);
 void commandPolygonOffset(GLfloat factor, GLfloat units);
 
-// programs and default uniform block
+// programs and default uniform block (FIXME: revise this, ugly interface)
 void commandUseProgram(BaseShader *shader);
 void commandUniform1f(GLint location, GLfloat v0);
 void commandUniform1i(GLint location, GLint v0);
+void commandUniform2f(GLint location, GLfloat v0, GLfloat v1);
 
 // buffer bindings, vertex attributes and vertex buffer set together for convenience (latched state)
 void commandBindVertexBuffer(GLuint buffer, const VertexFormat &format);

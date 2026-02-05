@@ -104,6 +104,10 @@ static int SurfaceIndex(const goldsrc::model_t *model, goldsrc::msurface_t *surf
 // simple, and looks better than having no randomization
 // at all or doing it the engine opengl way...
 
+// disabled currently to test detail textures
+//#define TILING_TEXTURE_ATLAS
+
+#ifdef TILING_TEXTURE_ATLAS
 static constexpr int TiledTextureGridSize(int textureCount)
 {
     // we want the grid to be square and large enough to fit all of the textures in
@@ -333,6 +337,7 @@ static GLuint LoadTiledTexture(goldsrc::texture_t **textures, int num_textures, 
 
     return MakeTiledTextureAtlas(firstTexture->name, tiledTextures, singleWidth, singleHeight, gridWidth, gridHeight);
 }
+#endif
 
 static int LookupTextureIndex(const goldsrc::model_t &model, const goldsrc::texture_t *texture)
 {
@@ -369,6 +374,7 @@ static void LoadTextures(const goldsrc::model_t &engineModel, gl3_worldmodel_t &
         dest->height = source->height;
 
         // check for tiling textures
+#ifdef TILING_TEXTURE_ATLAS
         if (source->name[0] == '-')
         {
             if (source->name[1] == '0')
@@ -384,6 +390,7 @@ static void LoadTextures(const goldsrc::model_t &engineModel, gl3_worldmodel_t &
             }
         }
         else
+#endif
         {
             dest->gl_texturenum = source->gl_texturenum;
         }
@@ -411,6 +418,7 @@ static void LoadTextures(const goldsrc::model_t &engineModel, gl3_worldmodel_t &
         }
     }
 
+#ifdef TILING_TEXTURE_ATLAS
     // update rest of the tiling textures
     for (int i = 0; i < model.numtextures; i++)
     {
@@ -439,6 +447,7 @@ static void LoadTextures(const goldsrc::model_t &engineModel, gl3_worldmodel_t &
             break;
         }
     }
+#endif
 }
 
 static void LoadPlanes(const goldsrc::model_t &engineModel, gl3_worldmodel_t &model)
@@ -830,6 +839,7 @@ gl3_brushvert_t *internalBuildVertexBuffer(model_t *model, gl3_worldmodel_t *out
             int texture_width = texinfo->texture->width;
             int texture_height = texinfo->texture->height;
 
+#ifdef TILING_TEXTURE_ATLAS
             if (texinfo->texture->name[0] == '-')
             {
                 // composite tiled texture, different width/height
@@ -838,6 +848,7 @@ gl3_brushvert_t *internalBuildVertexBuffer(model_t *model, gl3_worldmodel_t *out
                 texture_width *= size;
                 texture_height *= size;
             }
+#endif
 
             gl3_surface_t *surf = &outModel->surfaces[j];
             gl3_fatsurface_t *full = &outModel->fatsurfaces[j];

@@ -41,6 +41,7 @@ set(RENDER_SRC
     render/brush.cpp
     render/commandbuffer.cpp
     render/decal.cpp
+    render/detail.cpp
     render/dynamicbuffer.cpp
     render/effects.cpp
     render/entity.cpp

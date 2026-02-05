@@ -26,6 +26,7 @@ enum Command
     CmdPolygonOffset,
     CmdUniform1f,
     CmdUniform1i,
+    CmdUniform2f,
     CmdUseProgram,
     CmdBindVertexBuffer,
     CmdBindIndexBuffer,
@@ -263,6 +264,15 @@ void commandExecute()
             GLint location = ReadWord<GLint>();
             GLint v0 = ReadWord<GLint>();
             glUniform1i(location, v0);
+        }
+        break;
+
+        case CmdUniform2f:
+        {
+            GLint location = ReadWord<GLint>();
+            GLfloat v0 = ReadWord<GLfloat>();
+            GLfloat v1 = ReadWord<GLfloat>();
+            glUniform2f(location, v0, v1);
         }
         break;
 
@@ -519,9 +529,9 @@ void commandUniform1f(GLint location, GLfloat v0)
     }
 
     UniformValue &value = g_shadowState.shader->uniformState[location];
-    if (value.float_ != v0)
+    if (value.float_[0] != v0)
     {
-        value.float_ = v0;
+        value.float_[0] = v0;
         WriteWord(CmdUniform1f);
         WriteWord(location);
         WriteWord(v0);
@@ -540,12 +550,35 @@ void commandUniform1i(GLint location, GLint v0)
     }
 
     UniformValue &value = g_shadowState.shader->uniformState[location];
-    if (value.int_ != v0)
+    if (value.int_[0] != v0)
     {
-        value.int_ = v0;
+        value.int_[0] = v0;
         WriteWord(CmdUniform1i);
         WriteWord(location);
         WriteWord(v0);
+    }
+}
+
+void commandUniform2f(GLint location, GLfloat v0, GLfloat v1)
+{
+    GL3_ASSERT(s_recording);
+    GL3_ASSERT(g_shadowState.shader);
+
+    if (location == -1)
+    {
+        //GL3_ASSERT(false);
+        return;
+    }
+
+    UniformValue &value = g_shadowState.shader->uniformState[location];
+    if (value.float_[0] != v0 || value.float_[1] != v1)
+    {
+        value.float_[0] = v0;
+        value.float_[1] = v1;
+        WriteWord(CmdUniform2f);
+        WriteWord(location);
+        WriteWord(v0);
+        WriteWord(v1);
     }
 }
 

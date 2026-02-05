@@ -22,6 +22,7 @@
 #include "particle.h"
 #include "studio_misc.h"
 #include "beam.h"
+#include "detail.h"
 
 extern "C" void HUD_DrawNormalTriangles();
 extern "C" void HUD_DrawTransparentTriangles();
@@ -282,18 +283,25 @@ void Initialize(struct engine_studio_api_s *studio, r_studio_interface_s **pinte
     particleInit();
     screenFadeInit();
     beamInit();
+    detailInit();
 
     // dummy textures for fullbright etc.
     {
-        const int width = 1, height = 1;
-        byte data[width * height * 4];
-        memset(data, 0xff, sizeof(data));
+        Color32 pixel;
 
+        pixel = { 255, 255, 255, 255 };
         textureGenTextures(1, &g_state.whiteTexture);
         glBindTexture(GL_TEXTURE_2D, g_state.whiteTexture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &pixel);
+
+        pixel = { 128, 128, 128, 255 };
+        textureGenTextures(1, &g_state.grayTexture);
+        glBindTexture(GL_TEXTURE_2D, g_state.grayTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &pixel);
     }
 
     // get pointer to first elight

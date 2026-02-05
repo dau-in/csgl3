@@ -4,6 +4,7 @@
 #include "dynamicbuffer.h"
 #include "brush.h"
 #include "internal.h"
+#include "detail.h"
 
 namespace Render
 {
@@ -85,6 +86,9 @@ int decalDrawAll(uint16_t *spanData, int spanOffsetBytes, int curIndexCount)
     commandBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     commandDepthMask(GL_FALSE);
     commandPolygonOffset(-1.0f, -gl_polyoffset->value);
+
+    // decals are drawn with the same shader, so make sure detail textures are disabled
+    detailClearTexture();
 
     for (int i = 0; i < s_decalCount; i++)
     {

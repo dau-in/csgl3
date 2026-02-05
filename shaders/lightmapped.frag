@@ -5,6 +5,11 @@
 uniform sampler2D u_texture;
 uniform sampler2D u_lightmap;
 
+#if defined(DETAIL)
+uniform sampler2D u_detail;
+uniform vec2 u_detailScale;
+#endif
+
 in vec3 fragPosition;
 in vec4 texCoord;
 
@@ -51,6 +56,11 @@ void main()
         discard;
         return;
     }
+#endif
+
+#if defined(DETAIL)
+	vec3 detail = texture(u_detail, texCoord.xy * u_detailScale).rgb;
+	diffuse.rgb *= detail * 2.0;
 #endif
 
     vec3 lightmap = f_lightmapWeights[0] * texture(u_lightmap, texCoord.zw).rgb;

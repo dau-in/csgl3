@@ -41,8 +41,8 @@ struct ShaderOption
 
 union UniformValue
 {
-    int int_{};
-    float float_;
+    int int_[4]{};
+    float float_[4];
 };
 
 struct BaseShader

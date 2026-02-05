@@ -9,6 +9,7 @@ struct State
 {
     // set at startup
     GLuint whiteTexture;
+    GLuint grayTexture;
 
     // set to true at the start of a frame if
     // we're rendering with the custom renderer
