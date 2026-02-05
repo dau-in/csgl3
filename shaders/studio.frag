@@ -3,8 +3,6 @@
 
 uniform sampler2D u_texture;
 
-uniform int u_flags;
-
 in vec2 f_texCoord;
 in float f_fogFactor;
 in vec4 f_color;

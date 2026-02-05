@@ -16,15 +16,13 @@ out vec4 f_color;
 // engine's v_lambert1, doesn't change
 const float k_lambert = 1.4953241;
 
-// FIXME: try cleaning up if viewproj matrix gets split
 vec2 ChromeTexCoords(mat3x4 bone, vec3 normal)
 {
     vec3 pos = vec3(bone[0].w, bone[1].w, bone[2].w);
 
     vec3 forward = normalize(pos - chromeOrigin);
-
     vec3 up = normalize(cross(forward, cameraRight.xyz));
-    vec3 side = normalize(cross(forward, up));
+    vec3 side = cross(forward, up);
 
     vec2 texCoords;
     texCoords.x = 0.5 - 0.5 * dot(normal, side);
