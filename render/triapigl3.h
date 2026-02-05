@@ -7,6 +7,9 @@ namespace Render
 // original engine triapi
 extern triangleapi_t g_triapiGL1;
 
+// gl3 implementation exposed for beams
+extern const triangleapi_t g_triapiGL3;
+
 void triapiInit();
 
 void triapiBegin();

@@ -160,8 +160,6 @@ void particleInit()
     s_tracergreen = g_engfuncs.pfnGetCvarPointer("tracergreen");
     s_tracerblue = g_engfuncs.pfnGetCvarPointer("tracerblue");
     s_traceralpha = g_engfuncs.pfnGetCvarPointer("traceralpha");
-
-    particleClear();
 }
 
 void particleClear()

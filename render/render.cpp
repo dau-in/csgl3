@@ -34,6 +34,7 @@ struct SceneParams
     Vector3 origin;
     Vector3 angles;
     Vector3 forward, right, up;
+    Vector3 simOrigin; // predicted player origin
 
     float fov;
     float viewModelFov;
@@ -280,6 +281,7 @@ void Initialize(struct engine_studio_api_s *studio, r_studio_interface_s **pinte
     triapiInit();
     particleInit();
     screenFadeInit();
+    beamInit();
 
     // dummy textures for fullbright etc.
     {
@@ -357,6 +359,7 @@ static void CheckLevelChange()
 
         // i guess
         particleClear();
+        beamClear();
 
         // not sure if needed
         lightstyleReset();
@@ -622,6 +625,8 @@ static void SetupView(const SceneParams &params)
     g_state.viewUp = params.up;
     g_state.viewFrustum.Set(viewProjectionMatrix);
 
+    g_state.simOrigin = params.simOrigin;
+
     g_state.viewMatrix = viewMatrix;
     g_state.projectionMatrix = projectionMatrix;
     g_state.viewProjectionMatrix = viewProjectionMatrix;
@@ -739,6 +744,7 @@ void RenderScene(const Params &params)
         sceneParams.origin = refParams->vieworg;
         sceneParams.angles = refParams->viewangles;
         AngleVectors(sceneParams.angles, &sceneParams.forward, &sceneParams.right, &sceneParams.up);
+        sceneParams.simOrigin = refParams->simorg;
         sceneParams.fov = params.fov;
         sceneParams.viewModelFov = params.viewModelFov;
         sceneParams.viewport_x = refParams->viewport[0];

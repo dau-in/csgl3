@@ -2,6 +2,7 @@
 #include "effects.h"
 #include "random.h"
 #include "particle.h"
+#include "beam.h"
 
 namespace Render
 {
@@ -550,8 +551,38 @@ static BEAM *R_BeamPoints(float *start, float *end, int modelIndex, float life, 
         return s_engineEfx.R_BeamPoints(start, end, modelIndex, life, width, amplitude, brightness, speed, startFrame, framerate, r, g, b);
     }
 
-    NOT_IMPL();
-    return {};
+    if (modelIndex < 0)
+    {
+        return nullptr;
+    }
+
+    bool forever = (life == 0.0f);
+
+    if (!forever && beamCull(start, end))
+    {
+        return nullptr;
+    }
+
+    BEAM *beam = beamAllocate();
+    if (!beam)
+    {
+        return nullptr;
+    }
+
+    beamSetup(*beam, start, end, modelIndex, life, width, amplitude, brightness, speed);
+
+    if (forever)
+    {
+        beam->flags |= FBEAM_FOREVER;
+    }
+
+    beam->frameRate = framerate;
+    beam->frame = static_cast<float>(startFrame);
+    beam->r = r;
+    beam->g = g;
+    beam->b = b;
+
+    return beam;
 }
 
 static BEAM *R_BeamRing(int startEnt, int endEnt, int modelIndex, float life, float width, float amplitude, float brightness, float speed, int startFrame, float framerate, float r, float g, float b)

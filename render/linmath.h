@@ -5,6 +5,8 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#define F_PI static_cast<float>(M_PI)
+
 namespace Render
 {
 
@@ -165,6 +167,12 @@ inline bool operator==(const Vector3 &a, const Vector3 &b)
 inline Vector3 VectorLerp(const Vector3 &a, const Vector3 &b, float f)
 {
     return a + (b - a) * f;
+}
+
+inline float PointDistance(const Vector3 &a, const Vector3 &b)
+{
+    Vector3 d = a - b;
+    return sqrtf(Dot(d, d));
 }
 
 struct Vector4
