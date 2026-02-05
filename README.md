@@ -10,10 +10,11 @@
 ## Missing features
 
 * Most of the EFX API is not implemented
+* Most beam types are not implemented
 * Most rendering related cvars do not work with the renderer (e.g. gl_wireframe, r_fullbright)
-* Detail textures are not supported
 * Studio model texture color remaps are not implemented
 * Spectator subviews do not draw properly
+* Tiling textures are not implemented
 
 ## Behavioral differences
 
@@ -21,8 +22,7 @@ The renderer tries to remain faithful to the engine's renderer, but there are so
 
 * Dlights are applied per-pixel and do not scale with the lightmap
 * Dlights are limited to 4 visible at a time
-* Studio model lighting is computed per-pixel
-* Tiling textures are atlased
+* Studio model lightmap sampling is interpolated
 * Lightstyles are interpolated
 * Water waves have no varying height
 * Fog behaviour on translucent entities is different
