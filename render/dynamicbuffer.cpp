@@ -16,7 +16,7 @@ struct GLBuffer
 class DynamicBuffer
 {
     const GLenum m_target;
-    const int m_bufferSize;
+    int m_bufferSize;
 
     int m_offset{};
     GLBuffer m_buffers[BufferCount]{};
@@ -24,6 +24,8 @@ class DynamicBuffer
 #ifdef SCHIZO_DEBUG
     bool m_writingRegion{};
 #endif
+
+    std::vector<GLuint> m_deleteQueues[BufferCount];
 
 public:
     DynamicBuffer(GLenum target, const int byteSize)
@@ -79,20 +81,81 @@ public:
         switch (m_target)
         {
         case GL_ARRAY_BUFFER:
-            g_state.vertexBufferSize = m_offset;
+            g_state.vertexBufferSize += m_offset;
             break;
 
         case GL_ELEMENT_ARRAY_BUFFER:
-            g_state.indexBufferSize = m_offset;
+            g_state.indexBufferSize += m_offset;
             break;
 
         case GL_UNIFORM_BUFFER:
-            g_state.uniformBufferSize = m_offset;
+            g_state.uniformBufferSize += m_offset;
             break;
         }
 #endif
 
         m_offset = 0;
+    }
+
+    void BeginFrame(int index)
+    {
+#ifdef SCHIZO_DEBUG
+        switch (m_target)
+        {
+        case GL_ARRAY_BUFFER:
+            g_state.vertexBufferSize = 0;
+            break;
+
+        case GL_ELEMENT_ARRAY_BUFFER:
+            g_state.indexBufferSize = 0;
+            break;
+
+        case GL_UNIFORM_BUFFER:
+            g_state.uniformBufferSize = 0;
+            break;
+        }
+#endif
+        std::vector<GLuint> &queue = m_deleteQueues[index];
+        if (queue.size())
+        {
+            glDeleteBuffers(queue.size(), queue.data());
+            queue.clear();
+        }
+    }
+
+    static int ComputeNewSize(int oldSize, int requiredSize)
+    {
+        while (oldSize < requiredSize)
+        {
+            oldSize *= 2;
+        }
+
+        return oldSize;
+    }
+
+    void ResizeBuffers(int currentIndex, int requiredSize)
+    {
+        Unmap(currentIndex);
+
+        // can't delete these right away since we haven't issued the draw calls
+        for (GLBuffer &buffer : m_buffers)
+        {
+            GL3_ASSERT(!buffer.mapped);
+            m_deleteQueues[currentIndex].push_back(buffer.handle);
+        }
+
+        int oldSize = m_bufferSize;
+        m_bufferSize = ComputeNewSize(m_bufferSize, requiredSize);
+        g_engfuncs.Con_Printf("WARNING: resizing dynamic buffers: %04x: %d --> %d bytes\n", m_target, oldSize, m_bufferSize);
+
+        for (GLBuffer &buffer : m_buffers)
+        {
+            glGenBuffers(1, &buffer.handle);
+            glBindBuffer(m_target, buffer.handle);
+            glBufferData(m_target, m_bufferSize, nullptr, GL_STREAM_DRAW);
+        }
+
+        Map(currentIndex);
     }
 
     BufferSpan BeginRegion(int index, int maxSize, int alignment)
@@ -105,7 +168,7 @@ public:
         m_offset = AlignUp(m_offset, alignment);
         if (m_offset + maxSize > m_bufferSize)
         {
-            platformError("Dynamic GPU buffer overflow");
+            ResizeBuffers(index, m_offset + maxSize);
         }
 
         GLBuffer &buffer = m_buffers[index];
@@ -154,6 +217,11 @@ void dynamicBuffersMap()
     s_vertex.Map(s_bufferFrame);
     s_index.Map(s_bufferFrame);
     s_uniform.Map(s_bufferFrame);
+
+    // can call these after map
+    s_vertex.BeginFrame(s_bufferFrame);
+    s_index.BeginFrame(s_bufferFrame);
+    s_uniform.BeginFrame(s_bufferFrame);
 }
 
 void dynamicBuffersUnmap()
