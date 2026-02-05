@@ -33,8 +33,8 @@ endif()
 option(MESHOPT_INSTALL "Install library" OFF)
 add_subdirectory(external/meshoptimizer)
 
-add_executable(shaderc shaderc/main.cpp)
-target_include_directories(shaderc PRIVATE external/stb)
+add_executable(shaderembed shaderembed/main.cpp)
+target_include_directories(shaderembed PRIVATE external/stb)
 
 set(RENDER_SRC
     render/beam.cpp
@@ -100,8 +100,8 @@ target_compile_definitions(render PRIVATE
 
 add_custom_command(
     OUTPUT ${SHADER_SOURCES_FILE}
-    COMMAND shaderc ${SHADER_SOURCES} > ${SHADER_SOURCES_FILE}
-    DEPENDS shaderc ${SHADER_SOURCES}
+    COMMAND shaderembed ${SHADER_SOURCES} > ${SHADER_SOURCES_FILE}
+    DEPENDS shaderembed ${SHADER_SOURCES}
     VERBATIM)
 
 target_sources(render PRIVATE ${SHADER_SOURCES_FILE})
