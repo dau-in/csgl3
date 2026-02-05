@@ -124,7 +124,7 @@ static void *FindCodePattern(uint8_t *start, uint8_t *end, const uint16_t *patte
     return match;
 }
 
-// Attention ! For blobbed engines this is going to reutnr
+// NOTE: for blobbed engines this is going to be in hl.exe
 static bool GetSection(void *pointerInSection, uint8_t **pstart, uint8_t **pend)
 {
     HMODULE module;
