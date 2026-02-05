@@ -138,8 +138,9 @@ void textureUpdate()
     }
 
     // update all of the textures
-    for (Texture &texture : s_textures)
+    for (int i = 0; i < s_textureCount; i++)
     {
+        Texture &texture = s_textures[i];
         BindAndSetFilter(texture);
     }
 }

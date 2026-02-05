@@ -332,7 +332,7 @@ static void UpdateTracer(particle_t *tracer, float frametime, float gravity, flo
     }
 }
 
-static void DrawTracers()
+static void DrawTracers(float frametime)
 {
     FreeDeadParticles(&s_activeTracers);
     if (!s_activeTracers)
@@ -356,7 +356,6 @@ static void DrawTracers()
     immediateBindTexture(s_tracerTexture);
 
     // FIXME: won't work with older builds (hudGetClientOldTime doesn't exist)
-    float frametime = g_engfuncs.GetClientTime() - g_engfuncs.hudGetClientOldTime();
     float accel = Q_max(1.0f - frametime * 0.9f, 0.0f);
 
     float gravity = g_state.movevars->gravity * frametime;
@@ -512,7 +511,7 @@ static void ParticleUpdate(particle_t *particle, float frametime, float gravity)
     }
 }
 
-static void DrawParticles()
+static void DrawParticles(float frametime)
 {
     FreeDeadParticles(&s_activeParticles);
     if (!s_activeParticles)
@@ -534,9 +533,6 @@ static void DrawParticles()
     Vector3 right = g_state.viewRight * 1.5f;
     Vector3 up = g_state.viewUp * 1.5f;
 
-    // FIXME: won't work with very old engine versions (no hudGetClientOldTime)
-    float frametime = g_engfuncs.GetClientTime() - g_engfuncs.hudGetClientOldTime();
-
     float gravity = g_state.movevars->gravity * 0.05f * frametime;
 
     for (particle_t *particle = s_activeParticles; particle; particle = particle->next)
@@ -556,8 +552,13 @@ static void DrawParticles()
 
 void particleDraw()
 {
-    DrawParticles();
-    DrawTracers();
+    int framecount;
+    double curtime, oldtime;
+    g_engineStudio.GetTimes(&framecount, &curtime, &oldtime);
+    float frametime = static_cast<float>(curtime - oldtime);
+
+    DrawParticles(frametime);
+    DrawTracers(frametime);
 }
 
 }

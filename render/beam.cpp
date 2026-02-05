@@ -79,7 +79,7 @@ void beamSetup(
     float brightness,
     float speed)
 {
-    model_t *model = g_engfuncs.hudGetModelByIndex(modelIndex);
+    model_t *model = g_engineStudio.GetModelByIndex(modelIndex);
     if (!model)
     {
         return;
@@ -325,7 +325,7 @@ static void DrawBeam(BEAM &beam, float frametime)
 {
     float clientTime = g_engfuncs.GetClientTime();
 
-    model_t *model = g_engfuncs.hudGetModelByIndex(beam.modelIndex);
+    model_t *model = g_engineStudio.GetModelByIndex(beam.modelIndex);
     if (!model)
     {
         return;
@@ -656,9 +656,12 @@ void beamDraw()
         return;
     }
 
-    // FIXME: won't work with older builds (hudGetClientOldTime doesn't exist)
-    float clientTime = g_engfuncs.GetClientTime();
-    float frametime = clientTime - g_engfuncs.hudGetClientOldTime();
+    int framecount;
+    double curtime, oldtime;
+    g_engineStudio.GetTimes(&framecount, &curtime, &oldtime);
+
+    float clientTime = static_cast<float>(curtime);
+    float frametime = static_cast<float>(curtime - oldtime);
 
     triapiBegin();
     g_triapiGL3.CullFace(TRI_NONE);

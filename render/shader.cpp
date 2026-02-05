@@ -346,7 +346,6 @@ void shaderUpdate(bool forceRecompile)
 
     s_state.recompileQueued = false;
 
-    double startTime = g_engfuncs.GetAbsoluteTime();
     g_engfuncs.Con_Printf("Shader recompile triggered\n");
 
     s_state.cacheGeneration++;
@@ -378,9 +377,6 @@ void shaderUpdate(bool forceRecompile)
             it++;
         }
     }
-
-    double endTime = g_engfuncs.GetAbsoluteTime();
-    g_engfuncs.Con_Printf("Shader recompile took %g ms\n", (endTime - startTime) * 1000.0);
 }
 
 void shaderUpdateGamma(float brightness, float gamma, float lightgamma)

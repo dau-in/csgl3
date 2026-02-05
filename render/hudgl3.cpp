@@ -46,6 +46,7 @@ bool hudWorldToScreen(const Vector3 &p, float &x, float &y)
     return clip_w <= 0;
 }
 
+#ifdef ENABLE_HUD
 #ifdef SCHIZO_DEBUG
 static const char *PrettySize(int bytes)
 {
@@ -68,7 +69,6 @@ static const char *PrettySize(int bytes)
 }
 #endif
 
-#ifdef ENABLE_HUD
 static void DrawRenderHud(int screenWidth)
 {
     static int s_frameCount;
@@ -158,7 +158,7 @@ void PostDrawHud(int screenWidth, int screenHeight)
     }
 
     // disable engine crosshair
-    g_engfuncs.Cvar_Set("crosshair", "0");
+    g_engfuncs.Cvar_SetValue("crosshair", 0);
 }
 
 }

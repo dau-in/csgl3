@@ -368,7 +368,7 @@ static void RenderStudioShadows()
     for (int i = 0; i < s_studioShadowCount; i++)
     {
         StudioShadow &shadow = s_studioShadows[i];
-        model_t *model = g_engfuncs.hudGetModelByIndex(shadow.sprite);
+        model_t *model = g_engineStudio.GetModelByIndex(shadow.sprite);
         if (!model)
         {
             //GL3_ASSERT(false);
