@@ -8,6 +8,7 @@
     Profile: compatibility
     Extensions:
         GL_ARB_draw_elements_base_vertex,
+        GL_EXT_texture_filter_anisotropic,
         GL_KHR_debug
     Loader: True
     Local files: False
@@ -15,9 +16,9 @@
     Reproducible: False
 
     Commandline:
-        --profile="compatibility" --api="gl=3.1" --generator="c" --spec="gl" --extensions="GL_ARB_draw_elements_base_vertex,GL_KHR_debug"
+        --profile="compatibility" --api="gl=3.1" --generator="c" --spec="gl" --extensions="GL_ARB_draw_elements_base_vertex,GL_EXT_texture_filter_anisotropic,GL_KHR_debug"
     Online:
-        https://glad.dav1d.de/#profile=compatibility&language=c&specification=gl&loader=on&api=gl%3D3.1&extensions=GL_ARB_draw_elements_base_vertex&extensions=GL_KHR_debug
+        https://glad.dav1d.de/#profile=compatibility&language=c&specification=gl&loader=on&api=gl%3D3.1&extensions=GL_ARB_draw_elements_base_vertex&extensions=GL_EXT_texture_filter_anisotropic&extensions=GL_KHR_debug
 */
 
 #include <stdio.h>
@@ -914,6 +915,7 @@ PFNGLWINDOWPOS3IVPROC glad_glWindowPos3iv = NULL;
 PFNGLWINDOWPOS3SPROC glad_glWindowPos3s = NULL;
 PFNGLWINDOWPOS3SVPROC glad_glWindowPos3sv = NULL;
 int GLAD_GL_ARB_draw_elements_base_vertex = 0;
+int GLAD_GL_EXT_texture_filter_anisotropic = 0;
 int GLAD_GL_KHR_debug = 0;
 PFNGLDRAWELEMENTSBASEVERTEXPROC glad_glDrawElementsBaseVertex = NULL;
 PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC glad_glDrawRangeElementsBaseVertex = NULL;
@@ -1655,6 +1657,7 @@ static void load_GL_KHR_debug(GLADloadproc load) {
 static int find_extensionsGL(void) {
 	if (!get_exts()) return 0;
 	GLAD_GL_ARB_draw_elements_base_vertex = has_ext("GL_ARB_draw_elements_base_vertex");
+	GLAD_GL_EXT_texture_filter_anisotropic = has_ext("GL_EXT_texture_filter_anisotropic");
 	GLAD_GL_KHR_debug = has_ext("GL_KHR_debug");
 	free_exts();
 	return 1;

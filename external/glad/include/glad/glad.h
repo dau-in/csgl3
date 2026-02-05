@@ -8,6 +8,7 @@
     Profile: compatibility
     Extensions:
         GL_ARB_draw_elements_base_vertex,
+        GL_EXT_texture_filter_anisotropic,
         GL_KHR_debug
     Loader: True
     Local files: False
@@ -15,9 +16,9 @@
     Reproducible: False
 
     Commandline:
-        --profile="compatibility" --api="gl=3.1" --generator="c" --spec="gl" --extensions="GL_ARB_draw_elements_base_vertex,GL_KHR_debug"
+        --profile="compatibility" --api="gl=3.1" --generator="c" --spec="gl" --extensions="GL_ARB_draw_elements_base_vertex,GL_EXT_texture_filter_anisotropic,GL_KHR_debug"
     Online:
-        https://glad.dav1d.de/#profile=compatibility&language=c&specification=gl&loader=on&api=gl%3D3.1&extensions=GL_ARB_draw_elements_base_vertex&extensions=GL_KHR_debug
+        https://glad.dav1d.de/#profile=compatibility&language=c&specification=gl&loader=on&api=gl%3D3.1&extensions=GL_ARB_draw_elements_base_vertex&extensions=GL_EXT_texture_filter_anisotropic&extensions=GL_KHR_debug
 */
 
 
@@ -3285,6 +3286,8 @@ typedef void (APIENTRYP PFNGLUNIFORMBLOCKBINDINGPROC)(GLuint program, GLuint uni
 GLAPI PFNGLUNIFORMBLOCKBINDINGPROC glad_glUniformBlockBinding;
 #define glUniformBlockBinding glad_glUniformBlockBinding
 #endif
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
 #define GL_DEBUG_OUTPUT_SYNCHRONOUS 0x8242
 #define GL_DEBUG_NEXT_LOGGED_MESSAGE_LENGTH 0x8243
 #define GL_DEBUG_CALLBACK_FUNCTION 0x8244
@@ -3378,6 +3381,10 @@ GLAPI PFNGLDRAWELEMENTSINSTANCEDBASEVERTEXPROC glad_glDrawElementsInstancedBaseV
 typedef void (APIENTRYP PFNGLMULTIDRAWELEMENTSBASEVERTEXPROC)(GLenum mode, const GLsizei *count, GLenum type, const void *const*indices, GLsizei drawcount, const GLint *basevertex);
 GLAPI PFNGLMULTIDRAWELEMENTSBASEVERTEXPROC glad_glMultiDrawElementsBaseVertex;
 #define glMultiDrawElementsBaseVertex glad_glMultiDrawElementsBaseVertex
+#endif
+#ifndef GL_EXT_texture_filter_anisotropic
+#define GL_EXT_texture_filter_anisotropic 1
+GLAPI int GLAD_GL_EXT_texture_filter_anisotropic;
 #endif
 #ifndef GL_KHR_debug
 #define GL_KHR_debug 1

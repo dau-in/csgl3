@@ -13,6 +13,7 @@ struct Texture
     char name[64];
     GLenum target;
     GLuint texture;
+    bool mipmapped;
 };
 
 struct TextureMode
@@ -23,6 +24,13 @@ struct TextureMode
 
 static cvar_t *gl_texturemode;
 static char s_texturemodeString[32];
+
+// anisotropic filtering support. who the fuck implemented this? they misspelt the cvar name,
+// don't check if EXT_texture_filter_anisotropic is supported, and don't clamp the value
+static cvar_t *gl_ansio;
+
+// EXT_texture_filter_anisotropic
+static float s_maxAnisotropy = 0;
 
 // defaults not used but set just in case
 // actually defaults are used with old enough engines...
@@ -75,6 +83,36 @@ static bool UpdateTextureFilters()
 void textureInit()
 {
     gl_texturemode = g_engfuncs.pfnGetCvarPointer("gl_texturemode");
+
+    if (GLAD_GL_EXT_texture_filter_anisotropic)
+    {
+        gl_ansio = g_engfuncs.pfnGetCvarPointer("gl_ansio");
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &s_maxAnisotropy);
+    }
+}
+
+static void BindAndSetFilter(Texture &texture)
+{
+    // bind it and set the texture mode
+    glBindTexture(texture.target, texture.texture);
+
+    // FIXME: this sucks
+    if (texture.mipmapped)
+    {
+        glTexParameteri(texture.target, GL_TEXTURE_MIN_FILTER, s_minFilter);
+        glTexParameteri(texture.target, GL_TEXTURE_MAG_FILTER, s_magFilter);
+
+        if (gl_ansio)
+        {
+            float anisotropy = Q_clamp(gl_ansio->value, 1.0f, s_maxAnisotropy);
+            glTexParameterf(texture.target, GL_TEXTURE_MAX_ANISOTROPY_EXT, anisotropy);
+        }
+    }
+    else
+    {
+        glTexParameteri(texture.target, GL_TEXTURE_MIN_FILTER, MiplessFilter(s_minFilter));
+        glTexParameteri(texture.target, GL_TEXTURE_MAG_FILTER, MiplessFilter(s_magFilter));
+    }
 }
 
 void textureUpdate()
@@ -102,9 +140,7 @@ void textureUpdate()
     // update all of the textures
     for (Texture &texture : s_textures)
     {
-        glBindTexture(GL_TEXTURE_2D, texture.texture);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, s_minFilter);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, s_magFilter);
+        BindAndSetFilter(texture);
     }
 }
 
@@ -151,21 +187,9 @@ GLuint textureAllocateAndBind(GLenum target, const char *name, bool mipmapped)
 
     texture.target = target;
     textureGenTextures(1, &texture.texture);
+    texture.mipmapped = mipmapped;
 
-    // bind it and set the texture mode
-    glBindTexture(target, texture.texture);
-
-    // FIXME: this sucks
-    if (mipmapped)
-    {
-        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, s_minFilter);
-        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, s_magFilter);
-    }
-    else
-    {
-        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, MiplessFilter(s_minFilter));
-        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, MiplessFilter(s_magFilter));
-    }
+    BindAndSetFilter(texture);
 
     return texture.texture;
 }
