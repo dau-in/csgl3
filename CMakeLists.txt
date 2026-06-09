@@ -21,7 +21,7 @@ else()
     add_link_options(-m32)
 
     add_compile_options(-Wall -Wextra -Wno-write-strings -Wno-unused-parameter -Wno-invalid-offsetof)
-    add_compile_options(-march=x86-64 -fpic)
+    add_compile_options(-march=x86-64 -fpic -ffast-math)
 
     add_compile_options("$<$<CONFIG:Release>:-Ofast>")
 endif()

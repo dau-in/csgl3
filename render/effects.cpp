@@ -12,6 +12,8 @@ static efx_api_t s_engineEfx;
 
 static model_t *s_muzzleflashSprites[3];
 
+static cvar_t *tracerlength;
+
 #define NOT_IMPL() g_engfuncs.Con_Printf("[EFX] %s not implemented", __func__)
 
 // fucked up: when nvgs are on, CL_AllocDlight is called *every frame* to allocate a 0.1 seconds lasting dlight
@@ -463,9 +465,21 @@ static particle_t *R_TracerParticles(float *org, float *vel, float life)
         return s_engineEfx.R_TracerParticles(org, vel, life);
     }
 
-    // uses particles
-    NOT_IMPL();
-    return {};
+    particle_t *particle = particleAllocateTracer();
+    if (!particle)
+    {
+        return nullptr;
+    }
+
+    particle->die = g_engfuncs.GetClientTime() + life;
+    particle->color = 4;
+    particle->packedColor = 255;
+    particle->type = pt_static;
+    particle->ramp = tracerlength->value;
+    particle->org = org;
+    particle->vel = vel;
+
+    return particle;
 }
 
 static void R_TeleportSplash(float *org)
@@ -497,8 +511,44 @@ static BEAM *R_BeamEntPoint(int startEnt, float *end, int modelIndex, float life
         return s_engineEfx.R_BeamEntPoint(startEnt, end, modelIndex, life, width, amplitude, brightness, speed, startFrame, framerate, r, g, b);
     }
 
-    NOT_IMPL();
-    return {};
+    if (modelIndex < 0)
+    {
+        return nullptr;
+    }
+
+    bool forever = (life == 0.0f);
+
+    cl_entity_t *startEntity = beamGetBeamEntity(startEnt);
+    if (!startEntity || (!startEntity->model && !forever))
+    {
+        return nullptr;
+    }
+
+    BEAM *beam = beamAllocate();
+    if (!beam)
+    {
+        return nullptr;
+    }
+
+    beamSetup(*beam, Vector3{}, end, modelIndex, life, width, amplitude, brightness, speed);
+
+    beam->type = TE_BEAMPOINTS;
+    beam->flags |= FBEAM_STARTENTITY;
+
+    if (forever)
+    {
+        beam->flags |= FBEAM_FOREVER;
+    }
+
+    beam->startEntity = startEnt;
+    beam->endEntity = 0;
+    beam->frameRate = framerate;
+    beam->frame = static_cast<float>(startFrame);
+    beam->r = r;
+    beam->g = g;
+    beam->b = b;
+
+    return beam;
 }
 
 static BEAM *R_BeamEnts(int startEnt, int endEnt, int modelIndex, float life, float width, float amplitude, float brightness, float speed, int startFrame, float framerate, float r, float g, float b)
@@ -519,8 +569,29 @@ static BEAM *R_BeamFollow(int startEnt, int modelIndex, float life, float width,
         return s_engineEfx.R_BeamFollow(startEnt, modelIndex, life, width, r, g, b, brightness);
     }
 
-    NOT_IMPL();
-    return {};
+    if (modelIndex < 0)
+    {
+        return nullptr;
+    }
+
+    BEAM *beam = beamAllocate();
+    if (!beam)
+    {
+        return nullptr;
+    }
+
+    beamSetup(*beam, Vector3{}, Vector3{}, modelIndex, life, width, life, brightness, brightness);
+
+    beam->type = TE_BEAMFOLLOW;
+    beam->flags = FBEAM_STARTENTITY;
+    beam->frame = 0;
+    beam->startEntity = startEnt;
+    beam->frameRate = 1;
+    beam->r = r;
+    beam->g = g;
+    beam->b = b;
+
+    return beam;
 }
 
 static void R_BeamKill(int deadEntity)
@@ -557,11 +628,6 @@ static BEAM *R_BeamPoints(float *start, float *end, int modelIndex, float life, 
     }
 
     bool forever = (life == 0.0f);
-
-    if (!forever && beamCull(start, end))
-    {
-        return nullptr;
-    }
 
     BEAM *beam = beamAllocate();
     if (!beam)
@@ -700,6 +766,8 @@ void effectsInit(efx_api_t *efx_api, engine_studio_api_t *studio)
     s_muzzleflashSprites[0]->needload = 3;
     s_muzzleflashSprites[1]->needload = 3;
     s_muzzleflashSprites[2]->needload = 3;
+
+    tracerlength = g_engfuncs.pfnGetCvarPointer("tracerlength");
 }
 
 }

@@ -80,7 +80,7 @@ static const goldsrc::msurface_t *GetSurface(const goldsrc::model_t *model, int 
     int surfaceSize = GetSurfaceSize(model);
     const byte *surface = reinterpret_cast<const byte *>(model->surfaces) + (index * surfaceSize);
 
-    return reinterpret_cast<const goldsrc::msurface_t*>(surface);
+    return reinterpret_cast<const goldsrc::msurface_t *>(surface);
 }
 
 // returns -1 on all error cases
@@ -97,6 +97,17 @@ static int SurfaceIndex(const goldsrc::model_t *model, goldsrc::msurface_t *surf
 
     return index;
 }
+
+// for diagnostic prints
+#ifdef SCHIZO_DEBUG
+static int SurfaceIndexUnchecked(const goldsrc::model_t *model, goldsrc::msurface_t *surface)
+{
+    int surfaceSize = GetSurfaceSize(model);
+    int offset = reinterpret_cast<intptr_t>(surface) - reinterpret_cast<intptr_t>(model->surfaces);
+    int index = offset / surfaceSize;
+    return index;
+}
+#endif
 
 // fake random tiling textures
 // we take all of the textures from -0 to -9 and make
@@ -550,25 +561,6 @@ static void LoadFaces(const goldsrc::model_t &engineModel, gl3_worldmodel_t &mod
     }
 }
 
-static void LoadMarksurfaces(const goldsrc::model_t &engineModel, gl3_worldmodel_t &model)
-{
-    model.nummarksurfaces = engineModel.nummarksurfaces;
-    model.marksurfaces = memoryLevelAlloc<gl3_surface_t *>(model.nummarksurfaces);
-
-    for (int i = 0; i < model.nummarksurfaces; i++)
-    {
-        int surface_index = SurfaceIndex(&engineModel, engineModel.marksurfaces[i]);
-        if (surface_index == -1)
-        {
-            //g_engfuncs.Con_Printf("Out of bounds surfce %d (out of %d), NULLing marksurface\n", i, model.nummarksurfaces);
-            model.marksurfaces[i] = NULL;
-            continue;
-        }
-
-        model.marksurfaces[i] = &model.surfaces[surface_index];
-    }
-}
-
 static void LoadLeafs(const goldsrc::model_t &engineModel, gl3_worldmodel_t &model)
 {
     // bruh moment: model->numleafs gets stomped in Mod_LoadBrushModel so we have no way of knowing
@@ -635,9 +627,30 @@ static void LoadLeafs(const goldsrc::model_t &engineModel, gl3_worldmodel_t &mod
             for (int j = 0; j < dest.nummarksurfaces; j++)
             {
                 goldsrc::msurface_t *surface = source.firstmarksurface[j];
+
+                // happens in rocket_frenzy due to marksurfaces i16 overflow,
+                // shitty half life map compilers don't guard against it?
+                // we could technically try to recover from this by treating marksurfaces as u16,
+                // but i'm pretty sure the engine doesn't render these properly either, so don't bother
                 int surface_index = SurfaceIndex(&engineModel, surface);
-                GL3_ASSERT(surface_index >= 0 && surface_index < model.numsurfaces);
+                if (surface_index == -1)
+                {
+#ifdef SCHIZO_DEBUG
+                    g_engfuncs.Con_Printf("Truncating leaf %d marksurfaces from %d to %d (out of bounds surface %d/%d)\n",
+                        i,
+                        dest.nummarksurfaces,
+                        j,
+                        SurfaceIndexUnchecked(&engineModel, surface),
+                        engineModel.numsurfaces);
+#endif
+                    dest.nummarksurfaces = j;
+                    break;
+                }
+
                 dest.firstmarksurface[j] = surface_index;
+
+                // needed because of the mess above, would go away if we supported 1<<16 max surfaces
+                model.max_marksurface = Q_max(model.max_marksurface, surface_index);
             }
 
             for (int j = 0; j < dest.nummarksurfaces; j++)
@@ -744,7 +757,6 @@ bool internalLoadBrushModel(model_t *model, gl3_worldmodel_t *outModel)
     LoadTextures(src, *outModel);
     LoadPlanes(src, *outModel);
     LoadFaces(src, *outModel);
-    LoadMarksurfaces(src, *outModel);
     LoadLeafs(src, *outModel);
     LoadNodes(src, *outModel);
 
@@ -1206,18 +1218,16 @@ static bool SampleLightmap(LightmapSamples &result, goldsrc::model_t *model, gol
             int lightmap_width = (face->extents[0] / 16) + 1;
             int lightmap_height = (face->extents[1] / 16) + 1;
 
-            // 1. Get float position relative to the lightmap start
             float fs = ds - face->texturemins[0];
             float ft = dt - face->texturemins[1];
 
-            // 2. Calculate integer grid position and fractional offset (0.0 - 1.0)
             int x = (int)(fs / 16.0f);
             int y = (int)(ft / 16.0f);
             float ratio_x = (fs / 16.0f) - x;
             float ratio_y = (ft / 16.0f) - y;
 
-            // 3. Determine offsets for the "Next" pixels safely
-            // If moving right/down goes out of bounds, we just stay at 0 offset (nearest)
+            // not clamping these should be fine as the lightmaps are padded?
+            // also maybe had some problems with the clamp as it's commented out? can't remember
             int step_x = 1;
             int step_y = lightmap_width;
             // int step_x = (x < lightmap_width - 1) ? 1 : 0;
@@ -1235,30 +1245,24 @@ static bool SampleLightmap(LightmapSamples &result, goldsrc::model_t *model, gol
                     break;
                 }
 
-                // Pointer to the start of this style's layer
                 color24 *layer = face->samples + (lightmap_width * lightmap_height * j);
 
-                // 4. Fetch the four neighbors using our safe offsets
-                // TL = Top-Left, TR = Top-Right, BL = Bot-Left, BR = Bot-Right
-                color24 cTL = layer[base_idx];
-                color24 cTR = layer[base_idx + step_x];
-                color24 cBL = layer[base_idx + step_y];
-                color24 cBR = layer[base_idx + step_y + step_x];
+                color24 tl = layer[base_idx];
+                color24 tr = layer[base_idx + step_x];
+                color24 bl = layer[base_idx + step_y];
+                color24 br = layer[base_idx + step_y + step_x];
 
-                // 5. Interpolate
-                // Blend Horizontal
-                float topR = cTL.r * (1.0f - ratio_x) + cTR.r * ratio_x;
-                float topG = cTL.g * (1.0f - ratio_x) + cTR.g * ratio_x;
-                float topB = cTL.b * (1.0f - ratio_x) + cTR.b * ratio_x;
+                float topR = Lerp(tl.r, tr.r, ratio_x);
+                float topG = Lerp(tl.g, tr.g, ratio_x);
+                float topB = Lerp(tl.b, tr.b, ratio_x);
 
-                float botR = cBL.r * (1.0f - ratio_x) + cBR.r * ratio_x;
-                float botG = cBL.g * (1.0f - ratio_x) + cBR.g * ratio_x;
-                float botB = cBL.b * (1.0f - ratio_x) + cBR.b * ratio_x;
+                float botR = Lerp(bl.r, br.r, ratio_x);
+                float botG = Lerp(bl.g, br.g, ratio_x);
+                float botB = Lerp(bl.b, br.b, ratio_x);
 
-                // Blend Vertical
-                result.samples[j].r = (uint8_t)(topR * (1.0f - ratio_y) + botR * ratio_y);
-                result.samples[j].g = (uint8_t)(topG * (1.0f - ratio_y) + botG * ratio_y);
-                result.samples[j].b = (uint8_t)(topB * (1.0f - ratio_y) + botB * ratio_y);
+                result.samples[j].r = (uint8_t)Lerp(topR, botR, ratio_y);
+                result.samples[j].g = (uint8_t)Lerp(topG, botG, ratio_y);
+                result.samples[j].b = (uint8_t)Lerp(topB, botB, ratio_y);
             }
 
             return true;

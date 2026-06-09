@@ -20,7 +20,7 @@ void beamSetup(
     float brightness,
     float speed);
 
-bool beamCull(const Vector3 &start, const Vector3 &end);
+cl_entity_t *beamGetBeamEntity(int index);
 
 void beamDraw();
 

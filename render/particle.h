@@ -14,6 +14,9 @@ void particleDraw();
 particle_t *particleAllocate();
 particle_t *particleAllocateTracer();
 
+// for beams
+void particleFreeDead(particle_t **head);
+
 }
 
 #endif

@@ -149,6 +149,14 @@ static void SetupState()
     glDepthFunc(GL_LESS);
 
     // should already be the case
+    GL3_ASSERT(glIsEnabled(GL_DEPTH_TEST));
+#ifdef SCHIZO_DEBUG
+    GLint depthWriteMask;
+    glGetIntegerv(GL_DEPTH_WRITEMASK, &depthWriteMask);
+    GL3_ASSERT(depthWriteMask);
+#endif
+
+    // should already be the case
     GL3_ASSERT(glIsEnabled(GL_CULL_FACE));
 
     // need to disable these
@@ -734,6 +742,7 @@ void RenderScene(const Params &params)
     {
         g_state.movevars = refParams->movevars;
         g_state.crosshairAngle = refParams->crosshairangle;
+        g_state.maxEntities = refParams->max_entities;
         g_state.inWater = refParams->waterlevel > 2;
 
         // update movevars for studio model lighting

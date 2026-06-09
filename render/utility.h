@@ -112,7 +112,13 @@ static T AlignUp(T address, int alignment)
     }
 
     uintptr_t temp = (uintptr_t)address;
-    temp += alignment - temp % alignment;
+    uintptr_t remainder = temp % alignment;
+
+    if (remainder)
+    {
+        temp += alignment - remainder;
+    }
+
     return (T)temp;
 }
 

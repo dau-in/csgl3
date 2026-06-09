@@ -149,9 +149,6 @@ struct gl3_worldmodel_t
     gl3_surface_t *surfaces;
     gl3_fatsurface_t *fatsurfaces;
 
-    int nummarksurfaces;
-    gl3_surface_t **marksurfaces;
-
     int numtextures;
     gl3_texture_t *textures;
 
@@ -166,6 +163,9 @@ struct gl3_worldmodel_t
 
     // max amount of indices a single inline model may have
     int max_submodel_index_count;
+
+    // max surface index stored in leaf marksurfacesd
+    int max_marksurface;
 };
 
 // for sky and friends

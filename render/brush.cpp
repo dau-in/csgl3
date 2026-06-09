@@ -289,8 +289,8 @@ static void LinkLeaves()
     pvsUpdate(g_state.viewOrigin);
 
     // would rather do this than store g_state.frameCount in gl3_surface_t
-    GL3_ASSERT(g_worldmodel->numsurfaces < MAX_SURFACES);
-    memset(s_surfaceVisBits, 0, (g_worldmodel->numsurfaces + 7) / 8);
+    GL3_ASSERT(g_worldmodel->max_marksurface < MAX_SURFACES);
+    memset(s_surfaceVisBits, 0, (g_worldmodel->max_marksurface + 7) / 8);
 
     //int clipFlags = (1 << 4) - 1;
     GL3_ASSERT(!s_multiStyle);

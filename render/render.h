@@ -31,6 +31,7 @@ struct State
     // set when RenderScene is called
     movevars_t *movevars; //  used for studio model lighting params
     Vector3 crosshairAngle;
+    int maxEntities; // for shadowing entity state
 
     // SetupView
     Vector3 viewOrigin;

@@ -31,11 +31,9 @@ static BEAM *s_activeBeams;
 constexpr int NoiseCount = 128;
 static float s_noise[NoiseCount + 1];
 
-static cvar_t *tracerlength;
-
 void beamInit()
 {
-    tracerlength = g_engfuncs.pfnGetCvarPointer("tracerlength");
+    // nothing currently
 }
 
 void beamClear()
@@ -143,7 +141,7 @@ static void SineNoise(float *dest, int count)
     }
 }
 
-static cl_entity_t *GetBeamEntity(int index)
+cl_entity_t *beamGetBeamEntity(int index)
 {
     if (index < 0)
     {
@@ -155,7 +153,7 @@ static cl_entity_t *GetBeamEntity(int index)
     return g_engfuncs.GetEntityByIndex(BEAMENT_ENTITY(index));
 }
 
-bool beamCull(const Vector3 &start, const Vector3 &end)
+static bool FrustumCullBeam(const Vector3 &start, const Vector3 &end)
 {
     // don't perform a line cull, it causes popping
     // use sloppy sphere test, although it can be inefficient...
@@ -295,7 +293,7 @@ static void DrawCylinder(const Vector3 &source, const Vector3 &delta, float widt
     NOT_IMPL();
 }
 
-static void DrawBeamFollow(BEAM &beam)
+static void DrawBeamFollow(BEAM &beam, float frametime)
 {
     NOT_IMPL();
 }
@@ -361,7 +359,7 @@ static void DrawBeam(BEAM &beam, float frametime)
     {
         if (beam.flags & FBEAM_STARTENTITY)
         {
-            cl_entity_t *startEntity = GetBeamEntity(beam.startEntity);
+            cl_entity_t *startEntity = beamGetBeamEntity(beam.startEntity);
             if (!startEntity)
             {
                 return;
@@ -388,7 +386,7 @@ static void DrawBeam(BEAM &beam, float frametime)
 
         if (beam.flags & FBEAM_ENDENTITY)
         {
-            cl_entity_t *endEntity = GetBeamEntity(beam.endEntity);
+            cl_entity_t *endEntity = beamGetBeamEntity(beam.endEntity);
             if (!endEntity)
             {
                 return;
@@ -439,7 +437,7 @@ static void DrawBeam(BEAM &beam, float frametime)
         }
     }
 
-    if (beam.type == TE_BEAMPOINTS && beamCull(beam.source, beam.target))
+    if (beam.type == TE_BEAMPOINTS && FrustumCullBeam(beam.source, beam.target))
     {
         return;
     }
@@ -526,7 +524,7 @@ static void DrawBeam(BEAM &beam, float frametime)
 
     case TE_BEAMFOLLOW:
         g_triapiGL3.Begin(TRI_QUADS);
-        DrawBeamFollow(beam);
+        DrawBeamFollow(beam, frametime);
         g_triapiGL3.End();
         break;
 

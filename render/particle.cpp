@@ -193,8 +193,18 @@ static particle_t *AllocateParticle(particle_t **head)
     return particle;
 }
 
+particle_t *particleAllocate()
+{
+    return AllocateParticle(&s_activeParticles);
+}
+
+particle_t *particleAllocateTracer()
+{
+    return AllocateParticle(&s_activeTracers);
+}
+
 // got confused by valve's shitty code so this was rewritten, in practice should work the same
-static void FreeDeadParticles(particle_t **head)
+void particleFreeDead(particle_t **head)
 {
     float time = g_engfuncs.GetClientTime();
 
@@ -220,16 +230,6 @@ static void FreeDeadParticles(particle_t **head)
             current = &particle->next;
         }
     }
-}
-
-particle_t *particleAllocate()
-{
-    return AllocateParticle(&s_activeParticles);
-}
-
-particle_t *particleAllocateTracer()
-{
-    return AllocateParticle(&s_activeTracers);
 }
 
 static void DrawTracer(particle_t *tracer, float camSide)
@@ -334,7 +334,7 @@ static void UpdateTracer(particle_t *tracer, float frametime, float gravity, flo
 
 static void DrawTracers(float frametime)
 {
-    FreeDeadParticles(&s_activeTracers);
+    particleFreeDead(&s_activeTracers);
     if (!s_activeTracers)
     {
         return;
@@ -513,7 +513,7 @@ static void ParticleUpdate(particle_t *particle, float frametime, float gravity)
 
 static void DrawParticles(float frametime)
 {
-    FreeDeadParticles(&s_activeParticles);
+    particleFreeDead(&s_activeParticles);
     if (!s_activeParticles)
     {
         return;

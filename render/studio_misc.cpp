@@ -7,9 +7,6 @@
 namespace Render
 {
 
-// FIXME: dumb
-constexpr int MaxClientEntities = 1024;
-
 // in large levels, sampling lightmaps is relatively slow, especially now with bilinear filtering
 // in levels that use studio models as static props, it's obviously a complete waste of time
 // to recompute lighting every frame... to solve this i added a per entity lighting data cache
@@ -52,7 +49,7 @@ struct LightingKey
 
 struct LightingCache
 {
-    bool dirty{ true };
+    int skyVersion;
 
     LightingKey key;
     LightingData data;
@@ -62,8 +59,20 @@ struct LightingCache
 // updated from movevars
 static Vector3 s_skyColor;
 static Vector3 s_skyVec;
+static int s_skyVersion;
 
-static LightingCache s_lightingCache[MaxClientEntities]{};
+static LightingCache &GetLightingCache(int entityIndex)
+{
+    static std::vector<LightingCache> cache;
+
+    if (cache.size() < static_cast<size_t>(g_state.maxEntities))
+    {
+        cache.resize(g_state.maxEntities);
+    }
+
+    GL3_ASSERT(entityIndex >= 0 && entityIndex < g_state.maxEntities);
+    return cache[entityIndex];
+}
 
 inline Vector3 AnimatePoint(const Vector3 &point)
 {
@@ -159,13 +168,7 @@ void studioUpdateSkyLight(const movevars_t *mv)
     s_skyVec = skyVec;
 
     // invalidate skylight caches
-    for (LightingCache &cache : s_lightingCache)
-    {
-        if (!cache.dirty && cache.data.type == LightingSky)
-        {
-            cache.dirty = true;
-        }
-    }
+    s_skyVersion++;
 }
 
 static void ComputeLightingForKey(Vector3 &direction, LightingData &result, const LightingKey &key)
@@ -228,20 +231,22 @@ static const LightingData &GetCachedLightingData(Vector3 &out_direction, cl_enti
     key.model_flags = (uint16_t)entity->model->flags;
 
     int index = entity->index;
-    GL3_ASSERT(index >= 0 && index < MaxClientEntities);
+    GL3_ASSERT(index >= 0);
 
-    LightingCache &cache = s_lightingCache[index];
-    if (!cache.dirty)
+    LightingCache &cache = GetLightingCache(index);
+    if (cache.data.type == LightingSky && cache.skyVersion != s_skyVersion)
     {
+        // force update if sky lighting vars have changed
+        cache.skyVersion = s_skyVersion;
+    }
+    else
+    {
+        // see if we can reuse the cached data
         if (!memcmp(&cache.key, &key, sizeof(LightingKey)))
         {
             out_direction = cache.direction;
             return cache.data;
         }
-    }
-    else
-    {
-        cache.dirty = false;
     }
 
     cache.key = key;

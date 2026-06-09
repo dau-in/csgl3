@@ -51,7 +51,7 @@ static int s_primitiveVertexCount;
 static int s_primitiveStartVertex;
 
 // current vertex attributes
-static Vector4 s_currentColor;
+static Color32 s_currentColor;
 static Vector2 s_currentTexCoord;
 
 static void Flush()
@@ -209,7 +209,11 @@ void immediateBegin(GLenum mode)
 void immediateColor4f(float r, float g, float b, float a)
 {
     GL3_ASSERT(s_active);
-    s_currentColor = { r, g, b, a };
+
+    s_currentColor.r = static_cast<uint8_t>(Q_clamp(r * 255.0f, 0.0f, 255.0f));
+    s_currentColor.g = static_cast<uint8_t>(Q_clamp(g * 255.0f, 0.0f, 255.0f));
+    s_currentColor.b = static_cast<uint8_t>(Q_clamp(b * 255.0f, 0.0f, 255.0f));
+    s_currentColor.a = static_cast<uint8_t>(Q_clamp(a * 255.0f, 0.0f, 255.0f));
 }
 
 void immediateTexCoord2f(float s, float t)
@@ -225,10 +229,10 @@ void immediateVertex3f(float x, float y, float z)
     ImmediateVertex *v = &s_vertexSpan.data[s_totalVertexCount];
     v->position = { x, y, z };
     v->texCoord = s_currentTexCoord;
-    v->color[0] = static_cast<uint8_t>(s_currentColor.x * 255.0f);
-    v->color[1] = static_cast<uint8_t>(s_currentColor.y * 255.0f);
-    v->color[2] = static_cast<uint8_t>(s_currentColor.z * 255.0f);
-    v->color[3] = static_cast<uint8_t>(s_currentColor.w * 255.0f);
+    v->color[0] = s_currentColor.r;
+    v->color[1] = s_currentColor.g;
+    v->color[2] = s_currentColor.b;
+    v->color[3] = s_currentColor.a;
 
     s_totalVertexCount++;
     s_primitiveVertexCount++;
