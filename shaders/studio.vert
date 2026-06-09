@@ -110,6 +110,10 @@ vec4 ComputeColor(vec3 position, vec3 normal)
     color = ApplyElights(color, position, normal);
 #endif
 
+#if defined(OVERBRIGHT)
+    color *= (255.0 / 192.0);
+#endif
+
     return vec4(color, renderColor.a);
 }
 

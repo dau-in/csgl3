@@ -40,9 +40,21 @@ vec3 Brighten(vec3 f)
 vec3 ApplyBrightness(vec3 value)
 {
     value = pow(value, vec3(k_lightgamma));
+
+#if !defined(OVERBRIGHT)
+    value = min(value * 2.0, 1.0);
+#endif
+
     value *= max(k_brightness, 1.0);
     value = Brighten(value);
     value = pow(value, vec3(1.0 / k_gamma));
+
+    value = min(value, 1.0);
+
+#if defined(OVERBRIGHT)
+    value *= (255.0 / 192.0);
+#endif
+
     return value;
 }
 
@@ -59,8 +71,8 @@ void main()
 #endif
 
 #if defined(DETAIL)
-	vec3 detail = texture(u_detail, texCoord.xy * u_detailScale).rgb;
-	diffuse.rgb *= detail * 2.0;
+    vec3 detail = texture(u_detail, texCoord.xy * u_detailScale).rgb;
+    diffuse.rgb *= detail * 2.0;
 #endif
 
     vec3 lightmap = f_lightmapWeights[0] * texture(u_lightmap, texCoord.zw).rgb;
@@ -81,9 +93,7 @@ void main()
     }
 #endif
 
-    // software style overbrights
-    lightmap = min(ApplyBrightness(lightmap), vec3(1.0)) * (255.0 / 192.0);
-
+    lightmap = ApplyBrightness(lightmap);
     diffuse.rgb *= lightmap;
 
     diffuse.rgb = mix(fogColor.rgb, diffuse.rgb, f_fogFactor);

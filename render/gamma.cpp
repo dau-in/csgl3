@@ -8,11 +8,13 @@ static cvar_t *v_brightness;
 static cvar_t *v_gamma;
 static cvar_t *v_lightgamma;
 static cvar_t *v_texgamma;
+static cvar_t *gl_overbright;
 
 static float s_brightness;
 static float s_gamma;
 static float s_lightgamma;
 static float s_texgamma;
+static bool s_overbright;
 
 byte g_gammaTextureTable[256];
 byte g_gammaLinearTable[256];
@@ -24,11 +26,13 @@ static void OnVariableChanged()
     float gamma = v_gamma->value;
     float lightgamma = v_lightgamma->value;
     float texgamma = v_texgamma->value;
+    bool overbright = (gl_overbright->value != 0.0f);
 
     s_brightness = brightness;
     s_gamma = gamma;
     s_lightgamma = lightgamma;
     s_texgamma = texgamma;
+    s_overbright = overbright;
 
     float invgamma = 1.0f / gamma;
     float brighten = 0.125f - Q_clamp(brightness * brightness, 0.0f, 1.0f) * 0.075f;
@@ -68,7 +72,7 @@ static void OnVariableChanged()
         }
     }
 
-    shaderUpdateGamma(brightness, gamma, lightgamma);
+    shaderUpdateGamma(brightness, gamma, lightgamma, overbright);
 }
 
 void gammaInit()
@@ -77,6 +81,7 @@ void gammaInit()
     v_gamma = g_engfuncs.pfnGetCvarPointer("gamma");
     v_lightgamma = g_engfuncs.pfnGetCvarPointer("lightgamma");
     v_texgamma = g_engfuncs.pfnGetCvarPointer("texgamma");
+    gl_overbright = g_engfuncs.pfnGetCvarPointer("gl_overbright");
 
     OnVariableChanged();
 }
@@ -87,7 +92,8 @@ void gammaUpdate()
     if (s_brightness != v_brightness->value
         || s_gamma != v_gamma->value
         || s_lightgamma != v_lightgamma->value
-        || s_texgamma != v_texgamma->value)
+        || s_texgamma != v_texgamma->value
+        || s_overbright != (gl_overbright->value != 0.0f))
     {
         OnVariableChanged();
     }

@@ -55,7 +55,7 @@ struct BaseShader
 
 void shaderInit();
 void shaderUpdate(bool forceRecompile = false);
-void shaderUpdateGamma(float brightness, float gamma, float lightgamma);
+void shaderUpdateGamma(float brightness, float gamma, float lightgamma, bool overbright);
 
 void shaderRegister(
     byte *shaderStructs,

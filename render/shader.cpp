@@ -55,6 +55,7 @@ struct ShaderManagerState
     float brightness = -1.0f;
     float gamma = -1.0f;
     float lightgamma = -1.0f;
+    bool overbright = false;
 
     bool recompileQueued{ true };
 
@@ -206,6 +207,8 @@ static std::string GenerateVariantSource(const std::string &baseSource, Span<con
     AddMacro(source, baseSource, "V_BRIGHTNESS", s_state.brightness);
     AddMacro(source, baseSource, "V_GAMMA", s_state.gamma);
     AddMacro(source, baseSource, "V_LIGHTGAMMA", s_state.lightgamma);
+
+    AddMacro(source, baseSource, "OVERBRIGHT", s_state.overbright ? 1 : 0);
 
     int combination = variantIndex;
     for (const ShaderOption &opt : options)
@@ -379,13 +382,14 @@ void shaderUpdate(bool forceRecompile)
     }
 }
 
-void shaderUpdateGamma(float brightness, float gamma, float lightgamma)
+void shaderUpdateGamma(float brightness, float gamma, float lightgamma, bool overbright)
 {
-    if (s_state.brightness != brightness || s_state.gamma != gamma || s_state.lightgamma != lightgamma)
+    if (s_state.brightness != brightness || s_state.gamma != gamma || s_state.lightgamma != lightgamma || s_state.overbright != overbright)
     {
         s_state.brightness = brightness;
         s_state.gamma = gamma;
         s_state.lightgamma = lightgamma;
+        s_state.overbright = overbright;
         s_state.recompileQueued = true;
     }
 }
