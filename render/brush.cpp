@@ -290,7 +290,7 @@ static void LinkLeaves()
 
     // would rather do this than store g_state.frameCount in gl3_surface_t
     GL3_ASSERT(g_worldmodel->max_marksurface < MAX_SURFACES);
-    memset(s_surfaceVisBits, 0, (g_worldmodel->max_marksurface + 7) / 8);
+    memset(s_surfaceVisBits, 0, (g_worldmodel->max_marksurface + 8) / 8);
 
     //int clipFlags = (1 << 4) - 1;
     GL3_ASSERT(!s_multiStyle);
@@ -658,7 +658,7 @@ void brushDrawSolids(
     // lightmap only used for solid brush entities
     commandBindTexture(1, GL_TEXTURE_2D, g_worldmodel->lightmap_texture);
 
-    MapIndexBuffer(g_worldmodel->max_index_count);
+    MapIndexBuffer(g_worldmodel->max_index_count + MaxDecalIndices);
 
     // draw fully opaque stuff
     {
@@ -751,7 +751,7 @@ void brushDrawTranslucent(cl_entity_t *entity, float blend)
     SetBlendingAndGetColor(entity, renderColor, blend);
     SetupConstantBuffer(entity, renderColor);
 
-    MapIndexBuffer(g_worldmodel->max_submodel_index_count);
+    MapIndexBuffer(g_worldmodel->max_submodel_index_count + MaxDecalIndices);
 
     // not lightmapped or alpha tested
     LinkAndDrawBrushModel(entity, false, false);

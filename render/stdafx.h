@@ -144,7 +144,7 @@ inline void GLErrors(const char *file, int line, bool message)
 {
     int error = 0;
 
-    while ((error = glGetError()))
+    while ((error = glGetError()) != 0)
     {
         if (message)
         {

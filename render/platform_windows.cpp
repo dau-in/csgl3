@@ -225,7 +225,7 @@ static void FindLightstyle(void *pointerInCodeSection, void *pointerInDataSectio
 
         // cl_lightstyle pointer comes right after the push
         uint8_t *test = *(uint8_t **)(match + Q_countof(pattern));
-        if (test < dataStart || test > dataEnd)
+        if (test < dataStart || test + sizeof(s_nullstyle) > dataEnd)
         {
             continue;
         }

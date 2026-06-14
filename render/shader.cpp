@@ -313,6 +313,9 @@ static void BuildShaderVariant(const ShaderInfo &info, const std::string &baseVe
         *programPtr = 0;
     }
 
+    // creepy! but it'll work
+    reinterpret_cast<BaseShader *>(instancePtr)->uniformState.clear();
+
     std::string fullVertSrc = GenerateVariantSource(baseVertSrc, info.options, variantIndex);
     std::string fullFragSrc = GenerateVariantSource(baseFragSrc, info.options, variantIndex);
 

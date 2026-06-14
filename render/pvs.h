@@ -9,6 +9,9 @@ struct gl3_node_t;
 
 extern int g_pvsFrame;
 
+// called on level change
+void pvsReset();
+
 // called from brush the renderer
 void pvsUpdate(const Vector3 &point);
 

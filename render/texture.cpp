@@ -197,6 +197,12 @@ GLuint textureAllocateAndBind(GLenum target, const char *name, bool mipmapped)
 
 GLuint textureLoad2D(const char *path, bool mipmapped, bool gamma)
 {
+    GLuint texture = textureAllocateAndBind(GL_TEXTURE_2D, path, mipmapped);
+    if (!texture)
+    {
+        return 0;
+    }
+
     int fileSize;
     byte *file = g_engfuncs.COM_LoadFile(const_cast<char *>(path), 5, &fileSize);
     if (!file)
@@ -206,6 +212,8 @@ GLuint textureLoad2D(const char *path, bool mipmapped, bool gamma)
 
     int width, height, comp;
     byte *data = stbi_load_from_memory(file, fileSize, &width, &height, &comp, 4);
+    g_engfuncs.COM_FreeFile(file);
+
     if (!data)
     {
         return 0;
@@ -223,14 +231,14 @@ GLuint textureLoad2D(const char *path, bool mipmapped, bool gamma)
         }
     }
 
-    GLuint texture = textureAllocateAndBind(GL_TEXTURE_2D, path, mipmapped);
-
     glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, mipmapped ? GL_TRUE : GL_FALSE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
     glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    stbi_image_free(data);
 
     return texture;
 }

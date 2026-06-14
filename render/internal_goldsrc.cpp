@@ -924,9 +924,9 @@ template struct DecalClip<goldsrc::glvert_t>;
 static const goldsrc::glvert_t *ClipDecal(const goldsrc::decal_t *decal, const goldsrc::msurface_t *surface, const goldsrc::texture_t *decalTexture, int &clippedCount)
 {
     // FIXME: could move to stack later...
-    constexpr int MaxDecalVertices = 32; // overkill, but matches goldsrc
-    static goldsrc::glvert_t temp1[MaxDecalVertices];
-    static goldsrc::glvert_t temp2[MaxDecalVertices];
+    constexpr int MaxClipVertices = 32; // overkill, but matches goldsrc
+    static goldsrc::glvert_t temp1[MaxClipVertices];
+    static goldsrc::glvert_t temp2[MaxClipVertices];
 
     float xScale = (surface->texinfo->texture->width * decal->scale) / decalTexture->width;
     float yScale = (surface->texinfo->texture->height * decal->scale) / decalTexture->height;

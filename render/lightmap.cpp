@@ -59,6 +59,12 @@ static bool PackRectsToSize(LightmapRect *rects, int rectCount, int atlasWidth, 
     for (int i = 0; i < rectCount; i++)
     {
         LightmapRect &rect = rects[i];
+
+        if (rect.w > atlasWidth)
+        {
+            return false;
+        }
+
         if ((x + rect.w) > atlasWidth)
         {
             y += maxHeight;

@@ -23,6 +23,7 @@
 #include "studio_misc.h"
 #include "beam.h"
 #include "detail.h"
+#include "pvs.h"
 
 extern "C" void HUD_DrawNormalTriangles();
 extern "C" void HUD_DrawTransparentTriangles();
@@ -360,6 +361,7 @@ static void CheckLevelChange()
     // free the previous level data
     brushFreeWorldModel();
     memoryLevelFree();
+    pvsReset();
 
     // if the level changed, load it to g_worldmodel
     if (worldmodel)

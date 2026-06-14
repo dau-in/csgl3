@@ -1,4 +1,5 @@
 #ifndef STUDIO_MISC_H
+#define STUDIO_MISC_H
 
 namespace Render
 {

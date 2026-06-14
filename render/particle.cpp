@@ -236,7 +236,8 @@ static void DrawTracer(particle_t *tracer, float camSide)
 {
     Vector3 point1 = tracer->org;
 
-    float speed = Q_min(tracer->die - 0.1f, 0.1f) * tracer->ramp;
+    float clientTime = g_engfuncs.GetClientTime();
+    float speed = Q_min(tracer->die - clientTime, 0.1f) * tracer->ramp;
     Vector3 point2 = tracer->org + tracer->vel * speed;
 
     Vector2 screen1, screen2;

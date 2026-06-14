@@ -214,7 +214,7 @@ static bool LoadDetailTextureFile()
 
         // FIXME: properly validate these...
         float xscale = strtof(xscaleString, nullptr);
-        float yscale = strtof(xscaleString, nullptr);
+        float yscale = strtof(yscaleString, nullptr);
         if (xscale <= 0.0f || yscale <= 0.0f)
         {
             g_engfuncs.Con_Printf("%s: invalid scale for texture %s\n", path, name);

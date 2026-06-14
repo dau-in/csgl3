@@ -9,12 +9,6 @@
 namespace Render
 {
 
-// oversized on purpose
-constexpr int MaxDecals = 512;
-
-// rough approximation, gets checked so we won't overflow
-constexpr int MaxDecalVertices = MaxDecals * 4;
-
 struct DrawnDecal
 {
     GLuint texture;

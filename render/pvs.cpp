@@ -6,6 +6,7 @@ namespace Render
 {
 
 int g_pvsFrame;
+static gl3_leaf_t* s_lastLeaf;
 
 static gl3_leaf_t *LeafAtPoint(const Vector3 &point)
 {
@@ -37,18 +38,21 @@ static void MarkNodesVisible(gl3_leaf_t *leaf)
     }
 }
 
+void pvsReset()
+{
+    s_lastLeaf = nullptr;
+}
+
 void pvsUpdate(const Vector3 &point)
 {
     gl3_leaf_t *leaf = LeafAtPoint(g_state.viewOrigin);
-
-    static gl3_leaf_t *lastLeaf;
-    if (leaf == lastLeaf)
+    if (leaf == s_lastLeaf)
     {
         // no change
         return;
     }
 
-    lastLeaf = leaf;
+    s_lastLeaf = leaf;
     g_pvsFrame++;
 
     byte *visdata = leaf->compressed_vis;

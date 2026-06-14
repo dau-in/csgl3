@@ -36,7 +36,7 @@ static void ResetBlock(MemoryBlock &block)
 static void *AllocateFromBlock(MemoryBlock &block, int size, int alignment)
 {
     block.ptr = AlignUp(block.ptr, alignment);
-    if (block.ptr + size > block.end)
+    if (size < 0 || size > block.end - block.ptr)
     {
         platformError("Out of memory");
     }
