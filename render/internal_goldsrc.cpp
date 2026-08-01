@@ -360,7 +360,6 @@ static int LookupTextureIndex(const goldsrc::model_t &model, const goldsrc::text
         }
     }
 
-    GL3_ASSERT(false);
     return -1;
 }
 
@@ -374,7 +373,7 @@ static void LoadTextures(const goldsrc::model_t &engineModel, gl3_worldmodel_t &
         const goldsrc::texture_t *source = engineModel.textures[i];
         if (!source)
         {
-            GL3_ASSERT(false);
+            // FIXME: handle this better? currently these faces are not rendered
             continue;
         }
 
@@ -510,8 +509,7 @@ static void LoadFaces(const goldsrc::model_t &engineModel, gl3_worldmodel_t &mod
         dest->flags = source->flags;
 
         int texture_index = LookupTextureIndex(engineModel, source->texinfo->texture);
-        GL3_ASSERT(texture_index != -1);
-        dest->texture = &model.textures[texture_index];
+        dest->texture = (texture_index == -1) ? nullptr : &model.textures[texture_index];
 
         int plane_index = source->plane - engineModel.planes;
         GL3_ASSERT(plane_index >= 0 && plane_index < engineModel.numplanes);
@@ -764,13 +762,19 @@ bool internalLoadBrushModel(model_t *model, gl3_worldmodel_t *outModel)
     for (int i = 0; i < outModel->numsurfaces; i++)
     {
         gl3_surface_t &surface = outModel->surfaces[i];
-        surface.texture->numdrawsurfaces++;
+        gl3_texture_t* texture = surface.texture;
+        if (!texture)
+        {
+            continue;
+        }
+
+        texture->numdrawsurfaces++;
 
         constexpr uint32_t TexDependentMask = SURF_SKY | SURF_WATER | SURF_SCROLL;
-        surface.texture->surfflags |= surface.flags & TexDependentMask;
+        texture->surfflags |= surface.flags & TexDependentMask;
 
 #ifdef SCHIZO_DEBUG
-        GL3_ASSERT((surface.texture->surfflags & TexDependentMask) == (surface.flags & TexDependentMask));
+        GL3_ASSERT((texture->surfflags & TexDependentMask) == (surface.flags & TexDependentMask));
 #endif
     }
 
@@ -824,8 +828,12 @@ gl3_brushvert_t *internalBuildVertexBuffer(model_t *model, gl3_worldmodel_t *out
 
         gl3_surface_t *dest = &outModel->surfaces[j];
         gl3_texture_t *texture = dest->texture;
-        int textureIndex = texture - outModel->textures;
-        textureSurfaceIndices[textureIndex].push_back(j);
+        if (texture)
+        {
+            int textureIndex = texture - outModel->textures;
+            GL3_ASSERT(textureIndex >= 0 && textureIndex < outModel->numtextures);
+            textureSurfaceIndices[textureIndex].push_back(j);
+        }
     }
 
     // this will be the maximum index count we could possibly draw

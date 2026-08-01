@@ -219,7 +219,10 @@ static void AddSurface_NoDecals(gl3_surface_t *surface)
     s_multiStyle |= ((flags & SURF_MULTI_STYLE) != 0);
 
     gl3_texture_t *texture = surface->texture;
-    texture->drawsurfaces[texture->numdrawsurfaces++] = surface;
+    if (texture)
+    {
+        texture->drawsurfaces[texture->numdrawsurfaces++] = surface;
+    }
 }
 
 void TraverseTree_r(gl3_node_t *node)
