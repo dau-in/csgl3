@@ -16,8 +16,10 @@ struct StudioContext
     model_t *model;
     StudioCache *cache;
 
-    mstudiomodel_t *submodel;
     StudioSubModel *rendererSubModel;
+
+    // bone palette last used to populate the constant registers, -1 if none
+    int bonePalette;
 
     // lighting state
     float ambientlight;
@@ -27,7 +29,7 @@ struct StudioContext
 
     int elightCount;
     Vector3 elightPositions[STUDIO_MAX_ELIGHTS];
-    Vector4 elightColors[STUDIO_MAX_ELIGHTS]; // 4th component stores radius^2
+    Vector3 elightColors[STUDIO_MAX_ELIGHTS];
 
     // FIXME: reconsider
     int rendermode;

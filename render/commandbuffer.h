@@ -31,6 +31,7 @@ struct ShadowState
     GLuint vertexBuffer{};
     GLuint indexBuffer{};
     const VertexFormat *vertexFormat{};
+    int baseVertex{};
 
     GLuint textureUnit{ ~0u };
     GLuint texture2Ds[MaxTextureUnits]{};
@@ -66,7 +67,7 @@ void commandUniform1i(GLint location, GLint v0);
 void commandUniform2f(GLint location, GLfloat v0, GLfloat v1);
 
 // buffer bindings, vertex attributes and vertex buffer set together for convenience (latched state)
-void commandBindVertexBuffer(GLuint buffer, const VertexFormat &format);
+void commandBindVertexBuffer(GLuint buffer, const VertexFormat &format, int baseVertex);
 void commandBindIndexBuffer(GLuint buffer);
 void commandBindUniformBuffer(GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size);
 
@@ -74,7 +75,7 @@ void commandBindUniformBuffer(GLuint index, GLuint buffer, GLintptr offset, GLsi
 void commandBindTexture(GLuint unit, GLenum target, GLuint texture);
 
 // the the draw calls
-void commandDrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, GLsizei offset, GLint basevertex);
+void commandDrawElements(GLenum mode, GLsizei count, GLenum type, GLsizei offset);
 
 }
 

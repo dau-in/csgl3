@@ -155,9 +155,11 @@ static void DrawIndexBuffer(int baseVertex)
 
     GL3_ASSERT(indexCount > 0);
 
-    int byteOffset = s_indexSpan.byteOffset + (s_indexLastDraw * sizeof(uint16_t));
+    // bind here for the base vertex
+    commandBindVertexBuffer(g_worldmodel->vertex_buffer, g_brushVertexFormat, baseVertex);
 
-    commandDrawElementsBaseVertex(GL_TRIANGLES, indexCount, GL_UNSIGNED_SHORT, byteOffset, baseVertex);
+    int byteOffset = s_indexSpan.byteOffset + (s_indexLastDraw * sizeof(uint16_t));
+    commandDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_SHORT, byteOffset);
 
     s_indexLastDraw = s_indexCount;
 }
@@ -331,9 +333,6 @@ static float ScrollAmount(cl_entity_t *entity, gl3_texture_t *texture)
 
 static void DrawSurfaces(cl_entity_t *entity, BrushShader *shader, GLuint textureOverride)
 {
-    // index buffer is dynamic
-    commandBindVertexBuffer(g_worldmodel->vertex_buffer, g_brushVertexFormat);
-
     float prevScroll = 0;
     commandUniform1f(shader->u_scroll, prevScroll);
 
@@ -397,9 +396,6 @@ static void DrawSurfaces(cl_entity_t *entity, BrushShader *shader, GLuint textur
 
 static void DrawWaterSurfaces(cl_entity_t *entity, GLuint textureOverride)
 {
-    // restore the vertex buffer since drawing decals might have changed it
-    commandBindVertexBuffer(g_worldmodel->vertex_buffer, g_brushVertexFormat);
-
     if (textureOverride)
     {
         commandBindTexture(0, GL_TEXTURE_2D, textureOverride);
@@ -442,7 +438,6 @@ static void DrawWaterSurfaces(cl_entity_t *entity, GLuint textureOverride)
         texture->numdrawsurfaces = 0;
     }
 
-    
     if (lastDrawnTexture != -1)
     {
         g_state.waterColor = internalWaterColor(g_worldmodel->engine_model, lastDrawnTexture);
@@ -458,9 +453,6 @@ static void DrawSkySurfaces()
         // nothing to draw
         return;
     }
-
-    // restore the vertex buffer since drawing decals might have changed it
-    commandBindVertexBuffer(g_worldmodel->vertex_buffer, g_brushVertexFormat);
 
     for (int i = 0; i < g_worldmodel->numtextures; i++)
     {

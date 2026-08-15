@@ -13,50 +13,34 @@ uniform vec2 u_detailScale;
 in vec3 fragPosition;
 in vec4 texCoord;
 
-flat in vec4 f_lightmapWeights;
-flat in float f_lightmapWidth;
+in vec4 f_lightmapWeights;
+in float f_lightmapWidth;
 
 in float f_fogFactor;
 
 out vec4 fragColor;
 
-// made this the fuck up, completely wrong and based on nothing
+// not accurate, but convincing enough
+// the x1600 hated this, so this was made unreadable to make it happy
 #if defined(HAS_DLIGHTS)
-vec3 AddLight(vec3 pos, float invRadius, vec3 color)
+vec3 AddDLights()
 {
-    float dist = distance(pos, fragPosition);
-    float attenuation = max(0.0, 1.0 - dist * invRadius);
-    return color * attenuation * 0.3; // wtf is 0.3? no idea
+    vec4 dx = fragPosition.x - dlights[0];
+    vec4 dy = fragPosition.y - dlights[1];
+    vec4 dz = fragPosition.z - dlights[2];
+
+    vec4 dist2 = dx * dx;
+    dist2 += dy * dy;
+    dist2 += dz * dz;
+
+    vec4 atten = max(vec4(0.0), 1.0 - dist2 * dlights[3]);
+
+    return vec3(
+        dot(atten, dlightColors[0]),
+        dot(atten, dlightColors[1]),
+        dot(atten, dlightColors[2]));
 }
 #endif
-
-vec3 Brighten(vec3 f)
-{
-    vec3 a = (f / k_brighten) * 0.125;
-    vec3 b = (f - k_brighten) / (1.0 - k_brighten) * 0.875 + 0.125;
-    return mix(a, b, step(k_brighten, f));
-}
-
-vec3 ApplyBrightness(vec3 value)
-{
-    value = pow(value, vec3(k_lightgamma));
-
-#if !defined(OVERBRIGHT)
-    value = min(value * 2.0, 1.0);
-#endif
-
-    value *= max(k_brightness, 1.0);
-    value = Brighten(value);
-    value = pow(value, vec3(1.0 / k_gamma));
-
-    value = min(value, 1.0);
-
-#if defined(OVERBRIGHT)
-    value *= (255.0 / 192.0);
-#endif
-
-    return value;
-}
 
 void main()
 {
@@ -85,15 +69,19 @@ void main()
 #endif
 
 #if defined(HAS_DLIGHTS)
-    for (int i = 0; i < MAX_SHADER_LIGHTS; i++)
-    {
-        lightmap += AddLight(lightPositions[i].xyz,
-            lightPositions[i].w,
-            lightColors[i].rgb);
-    }
+    lightmap += AddDLights();
+#endif
+
+#if !defined(OVERBRIGHT)
+    lightmap *= V_LIGHTGAMMA_2X;
 #endif
 
     lightmap = ApplyBrightness(lightmap);
+
+#if defined(OVERBRIGHT)
+    lightmap *= (255.0 / 192.0);
+#endif
+
     diffuse.rgb *= lightmap;
 
     diffuse.rgb = mix(fogColor.rgb, diffuse.rgb, f_fogFactor);

@@ -45,7 +45,7 @@ bool internalGetSpriteInfo(model_t *model, int frameIndex, SpriteInfo *result);
 
 // for studio model lighting...
 bool internalTraceLineToSky(model_t *model, const Vector3 &start, const Vector3 &end);
-LightmapSamples internalSampleLightmap( model_t *model, const Vector3 &start, const Vector3 &end);
+LightmapSamples internalSampleLightmap(model_t *model, const Vector3 &start, const Vector3 &end);
 
 // sets cl.weaponstarttime and cl.weaponsequence
 void internalUpdateViewmodelAnimation(cl_entity_t *viewmodel);

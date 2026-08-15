@@ -11,7 +11,7 @@ static cvar_t *v_texgamma;
 static cvar_t *gl_overbright;
 
 static float s_brightness;
-static float s_gamma;
+float g_gamma;
 static float s_lightgamma;
 static float s_texgamma;
 static bool s_overbright;
@@ -29,13 +29,15 @@ static void OnVariableChanged()
     bool overbright = (gl_overbright->value != 0.0f);
 
     s_brightness = brightness;
-    s_gamma = gamma;
+    g_gamma = gamma;
     s_lightgamma = lightgamma;
     s_texgamma = texgamma;
     s_overbright = overbright;
 
     float invgamma = 1.0f / gamma;
-    float brighten = 0.125f - Q_clamp(brightness * brightness, 0.0f, 1.0f) * 0.075f;
+    // need to clamp before squaring to match the engine
+    float clampedBrightness = Q_clamp(brightness, 0.0f, 1.0f);
+    float brighten = 0.125f - clampedBrightness * clampedBrightness * 0.075f;
 
     for (int i = 0; i < 256; i++)
     {
@@ -90,7 +92,7 @@ void gammaUpdate()
 {
     // check for cvar change
     if (s_brightness != v_brightness->value
-        || s_gamma != v_gamma->value
+        || g_gamma != v_gamma->value
         || s_lightgamma != v_lightgamma->value
         || s_texgamma != v_texgamma->value
         || s_overbright != (gl_overbright->value != 0.0f))

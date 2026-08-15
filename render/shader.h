@@ -6,6 +6,50 @@ namespace Render
 
 struct VertexAttrib;
 
+// FIXME: determine from s_blockNames???
+constexpr int MaxUniformBlocks = 4;
+
+// FIXME: unfuck
+// NOTE: used by shaderembed
+enum class UboType
+{
+    Float,
+    Int,
+    Bool,
+    Vec2,
+    Vec3,
+    Vec4,
+    Mat4,
+    Mat3x4,
+};
+
+// NOTE: used by shaderembed
+struct UboMember
+{
+    const char *name;
+    UboType type;
+    unsigned short count;
+    unsigned short offset;
+};
+
+// NOTE: used by shaderembed
+struct UboLayout
+{
+    const char *blockName;
+    unsigned int size;
+    const UboMember *members;
+    int memberCount;
+};
+
+// for mapping UBO locations to plain uniforms, only
+// used when ARB_uniform_buffer_object is not available
+struct FlatBlock
+{
+    const UboLayout *layout; // null if not present
+    const GLint *locations; // -1 if not present
+    unsigned sequence; // draw time dirtiness checks
+};
+
 struct ShaderUniform
 {
     // mutable value: location will be stored at "field"
@@ -41,16 +85,59 @@ struct ShaderOption
 
 union UniformValue
 {
-    int int_[4]{};
-    float float_[4];
+    int int_[2]{};
+    float float_[2];
+};
+
+// open addressed on the uniform location, the key is location + 1 so a zeroed table is empty
+constexpr int MaxShaderUniforms = 8;
+
+// we're shadowing the default block to greatly reduce the size of command buffers
+struct UniformShadow
+{
+    GLuint keys[MaxShaderUniforms];
+    UniformValue values[MaxShaderUniforms];
+
+    UniformValue &operator[](GLint location)
+    {
+        GLuint key = location + 1;
+
+        unsigned slot = key & (MaxShaderUniforms - 1);
+
+        for (int i = 0; i < MaxShaderUniforms; i++)
+        {
+            if (keys[slot] == key)
+            {
+                return values[slot];
+            }
+
+            if (!keys[slot])
+            {
+                keys[slot] = key;
+                return values[slot];
+            }
+
+            slot = (slot + 1) & (MaxShaderUniforms - 1);
+        }
+
+        // never gets here
+        platformError("Uniform shadow overflow");
+    }
+
+    void clear()
+    {
+        memset(this, 0, sizeof(*this));
+    }
 };
 
 struct BaseShader
 {
     GLuint program;
 
-    // we're shadowing the default block to greatly reduce the size of command buffers
-    std::unordered_map<GLuint, UniformValue> uniformState;
+    // only used when ARB_uniform_buffer_object is not available
+    FlatBlock *flatBlocks;
+
+    UniformShadow uniformState;
 };
 
 void shaderInit();
@@ -74,9 +161,7 @@ void shaderRegister(
     Span<const ShaderUniform> uniforms,
     Span<const ShaderOption> options)
 {
-    // scummy ass test for BaseShader inheritance
-    GL3_ASSERT(offsetof(T, program) == 0);
-    GL3_ASSERT(offsetof(T, uniformState) == sizeof(GLuint));
+    static_assert(std::is_base_of<BaseShader, T>::value, "bruh");
     shaderRegister(reinterpret_cast<byte *>(shaderStructs), sizeof(T), ShaderCount, name, attributes, uniforms, options);
 }
 
@@ -87,9 +172,7 @@ void shaderRegister(
     Span<const VertexAttrib> attributes,
     Span<const ShaderUniform> uniforms)
 {
-    // scummy ass test for BaseShader inheritance
-    GL3_ASSERT(offsetof(T, program) == 0);
-    GL3_ASSERT(offsetof(T, uniformState) == sizeof(GLuint));
+    static_assert(std::is_base_of<BaseShader, T>::value, "bruh");
     shaderRegister(reinterpret_cast<byte *>(&shaderStruct), sizeof(T), 1, name, attributes, uniforms, {});
 }
 

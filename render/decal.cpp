@@ -73,7 +73,7 @@ int decalDrawAll(uint16_t *spanData, int spanOffsetBytes, int curIndexCount)
     dynamicVertexDataEnd<gl3_brushvert_t>(s_vertexCount);
     s_vertexCount = 0;
 
-    commandBindVertexBuffer(s_vertexSpan.buffer, g_brushVertexFormat);
+    commandBindVertexBuffer(s_vertexSpan.buffer, g_brushVertexFormat, baseVertex);
     s_vertexSpan.buffer = 0;
 
     commandBlendEnable(GL_TRUE);
@@ -102,7 +102,7 @@ int decalDrawAll(uint16_t *spanData, int spanOffsetBytes, int curIndexCount)
         }
 
         commandBindTexture(0, GL_TEXTURE_2D, decal->texture);
-        commandDrawElementsBaseVertex(GL_TRIANGLES, indexCount, GL_UNSIGNED_SHORT, indexByteOffset, baseVertex);
+        commandDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_SHORT, indexByteOffset);
     }
 
     // FIXME: this can break water!!!!

@@ -15,8 +15,9 @@ layout(std140) uniform FrameConstants
 
     vec4 clientTime; // FIXME: could pack with... something
 
-    vec4 lightPositions[MAX_SHADER_LIGHTS]; // w stores 1/radius
-    vec4 lightColors[MAX_SHADER_LIGHTS];
+    // 4 lights
+    vec4 dlights[4]; // x,y,z,1/radius^2
+    vec4 dlightColors[3]; // r,g,b
 
     // accessed with lightstyles[i].x
     vec4 lightstyles[MAX_LIGHTSTYLES];
@@ -26,7 +27,9 @@ layout(std140) uniform FrameConstants
 const float k_brightness = V_BRIGHTNESS;
 const float k_gamma = V_GAMMA;
 const float k_lightgamma = V_LIGHTGAMMA;
-const float k_brighten = 0.125 - clamp(V_BRIGHTNESS * V_BRIGHTNESS, 0.0, 1.0) * 0.075;
+// need to clamp before squaring to match the engine
+const float k_brightnessClamped = clamp(V_BRIGHTNESS, 0.0, 1.0);
+const float k_brighten = 0.125 - k_brightnessClamped * k_brightnessClamped * 0.075;
 
 // constant buffer for all things fog
 layout(std140) uniform FogConstants

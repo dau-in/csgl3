@@ -9,15 +9,32 @@ struct ScreenFadeShader : BaseShader
     GLint u_color;
 };
 
+static const VertexAttrib s_vertexAttribs[] = {
+    { &Vector2::x, "a_position" },
+};
+
 static const ShaderUniform s_uniforms[] = {
     { "u_color", &ScreenFadeShader::u_color }
 };
 
 static ScreenFadeShader s_shader;
 
+static GLuint s_vertexBuffer;
+
 void screenFadeInit()
 {
-    shaderRegister(s_shader, "screenfade", {}, {});
+    shaderRegister(s_shader, "screenfade", s_vertexAttribs, s_uniforms);
+
+    // fullscreen triangle
+    const Vector2 vertices[] = {
+        { -1.0f, -1.0f },
+        { -1.0f, 3.0f },
+        { 3.0f, -1.0f },
+    };
+
+    glGenBuffers(1, &s_vertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, s_vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 }
 
 static float ComputeAlpha(screenfade_t &screenFade)
@@ -89,6 +106,11 @@ void screenFadeDraw()
     {
         glUseProgram(s_shader.program);
         glUniform4fv(s_shader.u_color, 1, &color.x);
+
+        glBindBuffer(GL_ARRAY_BUFFER, s_vertexBuffer);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vector2), nullptr);
+
         glDrawArrays(GL_TRIANGLES, 0, 3);
     }
 

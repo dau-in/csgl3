@@ -1,6 +1,9 @@
 #include "stdafx.h"
 #include "dynamicbuffer.h"
 
+// we want to introduce a cpu stall if the gpu is still using the buffer
+#define WANT_TO_STALL
+
 namespace Render
 {
 
@@ -51,9 +54,26 @@ public:
         GL3_ASSERT(!buffer.mapped);
 
         glBindBuffer(m_target, buffer.handle);
-        void *mapped = glMapBufferRange(m_target, 0, m_bufferSize, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
-        GL3_ASSERT(mapped);
 
+        void *mapped;
+        if (GLAD_GL_ARB_map_buffer_range)
+        {
+            int flags = GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT;
+#ifndef WANT_TO_STALL
+            flags |= GL_MAP_INVALIDATE_BUFFER_BIT;
+#endif
+            mapped = glMapBufferRange(m_target, 0, m_bufferSize, flags);
+        }
+        else
+        {
+#ifndef WANT_TO_STALL
+            // just hope that this will work...
+            glBufferData(m_target, m_bufferSize, nullptr, GL_STREAM_DRAW);
+#endif
+            mapped = glMapBuffer(m_target, GL_WRITE_ONLY);
+        }
+
+        GL3_ASSERT(mapped);
         buffer.mapped = static_cast<uint8_t *>(mapped);
         GL3_ASSERT(m_offset == 0);
     }
@@ -73,7 +93,12 @@ public:
         GL3_ASSERT(buffer.mapped);
 
         glBindBuffer(m_target, buffer.handle);
-        glFlushMappedBufferRange(m_target, 0, m_offset);
+
+        if (GLAD_GL_ARB_map_buffer_range)
+        {
+            glFlushMappedBufferRange(m_target, 0, m_offset);
+        }
+
         glUnmapBuffer(m_target);
         buffer.mapped = nullptr;
 
@@ -203,32 +228,53 @@ static DynamicBuffer s_vertex{ GL_ARRAY_BUFFER, 1 << 19 };
 static DynamicBuffer s_index{ GL_ELEMENT_ARRAY_BUFFER, 1 << 19 };
 static DynamicBuffer s_uniform{ GL_UNIFORM_BUFFER, 1 << 19 };
 
+// only used when GLAD_GL_ARB_uniform_buffer_object is not supported
+// could trivially make this reallocating, but eh
+constexpr int FlatUboSize = 1 << 21;
+uint8_t g_flatUboData[FlatUboSize];
+static int s_flatUboOffset;
+
 void dynamicBuffersInit()
 {
-    glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &s_uniformBufferOffsetAlignment);
-
     s_vertex.Init();
     s_index.Init();
-    s_uniform.Init();
+
+    if (GLAD_GL_ARB_uniform_buffer_object)
+    {
+        glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &s_uniformBufferOffsetAlignment);
+        s_uniform.Init();
+    }
 }
 
 void dynamicBuffersMap()
 {
     s_vertex.Map(s_bufferFrame);
-    s_index.Map(s_bufferFrame);
-    s_uniform.Map(s_bufferFrame);
-
-    // can call these after map
     s_vertex.BeginFrame(s_bufferFrame);
+
+    s_index.Map(s_bufferFrame);
     s_index.BeginFrame(s_bufferFrame);
-    s_uniform.BeginFrame(s_bufferFrame);
+
+    if (GLAD_GL_ARB_uniform_buffer_object)
+    {
+        s_uniform.Map(s_bufferFrame);
+        s_uniform.BeginFrame(s_bufferFrame);
+    }
+    else
+    {
+        s_flatUboOffset = 0;
+    }
 }
 
 void dynamicBuffersUnmap()
 {
     s_vertex.Unmap(s_bufferFrame);
     s_index.Unmap(s_bufferFrame);
-    s_uniform.Unmap(s_bufferFrame);
+
+    if (GLAD_GL_ARB_uniform_buffer_object)
+    {
+        s_uniform.Unmap(s_bufferFrame);
+    }
+
     s_bufferFrame = (s_bufferFrame + 1) % BufferCount;
 }
 
@@ -254,6 +300,24 @@ void dynamicIndexDataEnd(int actualIndexCount, int indexSize)
 
 BufferSpan dynamicUniformData(const void *data, int size)
 {
+    if (!GLAD_GL_ARB_uniform_buffer_object)
+    {
+        int offset = AlignUp(s_flatUboOffset, 16);
+        if (offset + size > FlatUboSize)
+        {
+            platformError("Flat UBO overflow");
+        }
+
+        memcpy(&g_flatUboData[offset], data, size);
+        s_flatUboOffset = offset + size;
+
+        BufferSpan result;
+        result.buffer = ~0u; // can't use 0 since it's treated as invalid
+        result.byteOffset = offset;
+        result.data = &g_flatUboData[offset];
+        return result;
+    }
+
     BufferSpan result = s_uniform.BeginRegion(s_bufferFrame, size, s_uniformBufferOffsetAlignment);
     memcpy(result.data, data, size);
     s_uniform.EndRegion(size);

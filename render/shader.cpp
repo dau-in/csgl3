@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "shader.h"
+#include "lightgamma.h"
 
 // enable this if you want to reload shaders at runtime
 //#define SHADER_RELOAD
@@ -14,7 +15,12 @@
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
-#else
+#endif
+
+namespace Render
+{
+
+#ifndef SHADER_RELOAD
 struct ShaderData
 {
     const char *name;
@@ -22,11 +28,18 @@ struct ShaderData
     int size;
 };
 
+struct ShaderData120
+{
+    const char *name;
+    const void *data;
+    int size;
+
+    const UboLayout *const *ubos;
+    int uboCount;
+};
+
 #include SHADER_SOURCES_FILE
 #endif
-
-namespace Render
-{
 
 constexpr int MaxRegisteredShaders = 16;
 
@@ -63,7 +76,7 @@ struct ShaderManagerState
     std::unordered_map<std::string, CachedShader> shaderCache;
 
     int registeredCount{};
-    ShaderInfo registeredShaders[MaxRegisteredShaders];
+    ShaderInfo registeredShaders[MaxRegisteredShaders]{};
 };
 
 static ShaderManagerState s_state;
@@ -95,12 +108,26 @@ static void LoadRawSource(const char *name, std::string &outSource)
     outSource.assign(data);
     free(data);
 #else
-    for (const ShaderData &entry : s_shaderData)
+    if (GLAD_GL_ARB_uniform_buffer_object)
     {
-        if (!strcmp(entry.name, name))
+        for (const ShaderData &entry : s_shaderData)
         {
-            outSource.assign(reinterpret_cast<const char *>(entry.data), entry.size);
-            return;
+            if (!strcmp(entry.name, name))
+            {
+                outSource.assign(reinterpret_cast<const char *>(entry.data), entry.size);
+                return;
+            }
+        }
+    }
+    else
+    {
+        for (const ShaderData120 &entry : s_shaderData_120)
+        {
+            if (!strcmp(entry.name, name))
+            {
+                outSource.assign(reinterpret_cast<const char *>(entry.data), entry.size);
+                return;
+            }
         }
     }
 
@@ -151,7 +178,7 @@ static GLuint CompileShader(const char *shaderName, const std::string &sourceStr
         glGetShaderInfoLog(shaderHandle, sizeof(log), nullptr, log);
         if (log[0])
         {
-            platformError("%s %s shader warning:\n%s",
+            g_engfuncs.Con_Printf("%s %s shader log:\n%s",
                 shaderName, GetShaderTypeString(type), log);
         }
     }
@@ -174,8 +201,7 @@ static GLuint GetOrCompileShader(const char *name, const std::string &fullSource
     return entry.handle;
 }
 
-template<typename T>
-static void AddMacro(std::string &buffer, const std::string &baseSource, const char *macroName, const T &value)
+static void AddMacro(std::string &buffer, const std::string &baseSource, const char *macroName, int value)
 {
     if (value == 0)
     {
@@ -197,18 +223,46 @@ static void AddMacro(std::string &buffer, const std::string &baseSource, const c
     buffer.append("\n");
 }
 
+static void AddMacro(std::string &buffer, const std::string &baseSource, const char *macroName, float value)
+{
+    // if you remove this, the shader cache won't work
+    if (baseSource.find(macroName) == std::string::npos)
+    {
+        // macro not used, so don't define it
+        return;
+    }
+
+    buffer.append("#define ");
+    buffer.append(macroName);
+    buffer.append(" ");
+    buffer.append(std::to_string(value));
+    buffer.append("\n");
+}
+
 static std::string GenerateVariantSource(const std::string &baseSource, Span<const ShaderOption> options, int variantIndex)
 {
     std::string source;
     source.reserve(baseSource.size() + 256);
 
-    source.append("#version 140\n");
+    // if ubos are not available, we need to use the glsl 1.20
+    // shaders that have them converted to plain uniforms
+    if (!GLAD_GL_ARB_uniform_buffer_object)
+    {
+        source.append("#version 120\n");
+    }
+    else
+    {
+        source.append("#version 140\n");
+    }
 
     AddMacro(source, baseSource, "V_BRIGHTNESS", s_state.brightness);
     AddMacro(source, baseSource, "V_GAMMA", s_state.gamma);
     AddMacro(source, baseSource, "V_LIGHTGAMMA", s_state.lightgamma);
 
     AddMacro(source, baseSource, "OVERBRIGHT", s_state.overbright ? 1 : 0);
+
+    // kludge for brush.frag
+    AddMacro(source, baseSource, "V_LIGHTGAMMA_2X", powf(2.0f, 1.0f / s_state.lightgamma));
 
     int combination = variantIndex;
     for (const ShaderOption &opt : options)
@@ -249,26 +303,21 @@ static void SetupUniforms(GLuint program, byte *instancePtr, Span<const ShaderUn
     glUseProgram(0);
 }
 
+static const char *const s_blockNames[MaxUniformBlocks] = {
+    "FrameConstants",
+    "ModelConstants",
+    "FogConstants",
+    "BoneConstants"
+};
+
 static void BindUniformBlocks(GLuint program)
 {
-    struct BlockBinding
+    for (int binding = 0; binding < MaxUniformBlocks; binding++)
     {
-        const char *name;
-        int binding;
-    };
-
-    static const BlockBinding blocks[] = {
-        { "FrameConstants", 0 },
-        { "ModelConstants", 1 },
-        { "FogConstants", 2 }
-    };
-
-    for (const BlockBinding &block : blocks)
-    {
-        GLuint index = glGetUniformBlockIndex(program, block.name);
+        GLuint index = glGetUniformBlockIndex(program, s_blockNames[binding]);
         if (index != GL_INVALID_INDEX)
         {
-            glUniformBlockBinding(program, index, block.binding);
+            glUniformBlockBinding(program, index, binding);
         }
     }
 }
@@ -301,32 +350,144 @@ static GLuint LinkShaderProgram(const char *name, GLuint vs, GLuint fs, Span<con
     return program;
 }
 
-static void BuildShaderVariant(const ShaderInfo &info, const std::string &baseVertSrc, const std::string &baseFragSrc, int variantIndex)
+#ifndef SHADER_RELOAD
+static int BindingForBlock(const char *blockName)
 {
-    byte *instancePtr = &info.instanceData[info.instanceDataSize * variantIndex];
-
-    // m_program is guaranteed to be at offset 0
-    GLuint *programPtr = reinterpret_cast<GLuint *>(instancePtr);
-    if (*programPtr)
+    for (int binding = 0; binding < MaxUniformBlocks; binding++)
     {
-        glDeleteProgram(*programPtr);
-        *programPtr = 0;
+        if (!strcmp(blockName, s_blockNames[binding]))
+        {
+            return binding;
+        }
     }
 
-    // creepy! but it'll work
-    reinterpret_cast<BaseShader *>(instancePtr)->uniformState.clear();
+    platformError("Unknown uniform block %s", blockName);
+}
 
-    std::string fullVertSrc = GenerateVariantSource(baseVertSrc, info.options, variantIndex);
-    std::string fullFragSrc = GenerateVariantSource(baseFragSrc, info.options, variantIndex);
+// FIXME: this sucks!!!
+static const ShaderData120 &FindShaderData120(const char *name)
+{
+    for (const ShaderData120 &entry : s_shaderData_120)
+    {
+        if (!strcmp(entry.name, name))
+        {
+            return entry;
+        }
+    }
+
+    platformError("No such shader embedded: %s", name);
+}
+
+static FlatBlock *BuildFlatBlocks(GLuint program, const char *shaderName)
+{
+    // FIXME: unfuck this!!!
+    char vertName[256];
+    char fragName[256];
+
+    snprintf(vertName, sizeof(vertName), "%s.vert", shaderName);
+    snprintf(fragName, sizeof(fragName), "%s.frag", shaderName);
+
+    const ShaderData120 &vertData = FindShaderData120(vertName);
+    const ShaderData120 &fragData = FindShaderData120(fragName);
+
+    const UboLayout *layouts[MaxUniformBlocks]{};
+    int memberCount = 0;
+
+    for (const ShaderData120 *data : { &vertData, &fragData })
+    {
+        for (int i = 0; i < data->uboCount; i++)
+        {
+            const UboLayout *layout = data->ubos[i];
+            int binding = BindingForBlock(layout->blockName);
+
+            if (layouts[binding])
+            {
+                GL3_ASSERT(layouts[binding] == layout);
+                continue;
+            }
+
+            layouts[binding] = layout;
+            memberCount += layout->memberCount;
+        }
+    }
+
+    if (!memberCount)
+    {
+        return nullptr;
+    }
+
+    // hellish malloc
+    // FIXME: this can be unfucked
+    constexpr int blocksSize = MaxUniformBlocks * sizeof(FlatBlock);
+    int locationsSize = memberCount * sizeof(GLint);
+
+    uint8_t *base = static_cast<uint8_t *>(malloc(blocksSize + locationsSize));
+    FlatBlock *blocks = reinterpret_cast<FlatBlock *>(base);
+    GLint *locations = reinterpret_cast<GLint *>(base + blocksSize);
+
+    memset(blocks, 0, blocksSize);
+
+    for (int binding = 0; binding < MaxUniformBlocks; binding++)
+    {
+        const UboLayout *layout = layouts[binding];
+        if (!layout)
+        {
+            continue;
+        }
+
+        FlatBlock &block = blocks[binding];
+        block.layout = layout;
+        block.locations = locations;
+
+        for (int i = 0; i < layout->memberCount; i++)
+        {
+            *locations++ = glGetUniformLocation(program, layout->members[i].name);
+        }
+    }
+
+    return blocks;
+}
+#endif
+
+static void BuildShaderVariant(const ShaderInfo &info, const std::string &baseVertSrc, const std::string &baseFragSrc, const std::string &prologue, int variantIndex)
+{
+    // creepy! but it'll work
+    byte *instancePtr = &info.instanceData[info.instanceDataSize * variantIndex];
+    BaseShader *instance = reinterpret_cast<BaseShader *>(instancePtr);
+
+    if (instance->program)
+    {
+        glDeleteProgram(instance->program);
+        instance->program = 0;
+    }
+
+    instance->uniformState.clear();
+
+    free(instance->flatBlocks);
+    instance->flatBlocks = nullptr;
+
+    std::string fullVertSrc = GenerateVariantSource(prologue + baseVertSrc, info.options, variantIndex);
+    std::string fullFragSrc = GenerateVariantSource(prologue + baseFragSrc, info.options, variantIndex);
 
     GLuint vertShader = GetOrCompileShader(info.name, fullVertSrc, GL_VERTEX_SHADER);
     GLuint fragShader = GetOrCompileShader(info.name, fullFragSrc, GL_FRAGMENT_SHADER);
 
     GLuint program = LinkShaderProgram(info.name, vertShader, fragShader, info.attributes);
-    *programPtr = program;
+    instance->program = program;
 
-    BindUniformBlocks(program);
+    if (GLAD_GL_ARB_uniform_buffer_object)
+    {
+        BindUniformBlocks(program);
+    }
+
     SetupUniforms(program, instancePtr, info.uniforms);
+
+#ifndef SHADER_RELOAD
+    if (!GLAD_GL_ARB_uniform_buffer_object)
+    {
+        instance->flatBlocks = BuildFlatBlocks(program, info.name);
+    }
+#endif
 }
 
 #ifdef SHADER_RELOAD
@@ -356,6 +517,9 @@ void shaderUpdate(bool forceRecompile)
 
     s_state.cacheGeneration++;
 
+    // fit the lightgamma curve (FIXME)
+    std::string lightgammaSource = LightGammaGLSL(s_state.gamma, s_state.lightgamma, s_state.brightness);
+
     for (int i = 0; i < s_state.registeredCount; i++)
     {
         const ShaderInfo &info = s_state.registeredShaders[i];
@@ -365,7 +529,7 @@ void shaderUpdate(bool forceRecompile)
 
         for (int v = 0; v < info.variantCount; v++)
         {
-            BuildShaderVariant(info, baseVert, baseFrag, v);
+            BuildShaderVariant(info, baseVert, baseFrag, lightgammaSource, v);
         }
     }
 
@@ -407,6 +571,21 @@ void shaderRegister(
     Span<const ShaderOption> options)
 {
     GL3_ASSERT(s_state.registeredCount < MaxRegisteredShaders);
+
+    int mutableCount = 0;
+
+    for (const ShaderUniform &uniform : uniforms)
+    {
+        if (uniform.offset >= 0)
+        {
+            mutableCount++;
+        }
+    }
+
+    if (mutableCount > MaxShaderUniforms)
+    {
+        platformError("Shader %s has %d mutable uniforms, max is %d", name, mutableCount, MaxShaderUniforms);
+    }
 
     ShaderInfo &info = s_state.registeredShaders[s_state.registeredCount++];
     info.name = name;

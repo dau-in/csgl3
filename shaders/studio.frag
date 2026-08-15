@@ -1,5 +1,4 @@
 #include "common.glsl"
-#include "studio_common.glsl"
 
 uniform sampler2D u_texture;
 

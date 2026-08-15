@@ -345,6 +345,8 @@ void studioProxyDrawEntity(int flags, cl_entity_t *entity, float blend)
     s_context.entity = entity;
     s_context.blend = blend;
 
+    s_context.bonePalette = -1;
+
     GL3_ASSERT(entity->curstate.movetype != MOVETYPE_FOLLOW);
     GL3_ASSERT(!entity->curstate.aiment);
 

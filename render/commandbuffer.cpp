@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "commandbuffer.h"
+#include "dynamicbuffer.h"
 
 namespace Render
 {
@@ -14,6 +15,7 @@ enum Command
     CmdBindUniformBuffer0,
     CmdBindUniformBuffer1,
     CmdBindUniformBuffer2,
+    CmdBindUniformBuffer3,
 
     CmdBindTexture2D,
     CmdBindTextureCubeMap,
@@ -43,6 +45,13 @@ enum Command
 };
 
 ShadowState g_shadowState;
+
+struct FlatUboBinding
+{
+    const uint8_t *data;
+    int size;
+    unsigned sequence; // for dirtiness checks
+};
 
 static bool s_recording;
 
@@ -130,6 +139,114 @@ static bool IsFinished()
     return s_readOffset == s_size;
 }
 
+static void SetUniform(GLint location, const UboMember &member, const uint8_t *base, int count)
+{
+    const void *ptr = base + member.offset;
+
+    switch (member.type)
+    {
+    case UboType::Float:
+        glUniform1fv(location, count, static_cast<const GLfloat *>(ptr));
+        break;
+    case UboType::Int:
+    case UboType::Bool:
+        glUniform1iv(location, count, static_cast<const GLint *>(ptr));
+        break;
+    case UboType::Vec2:
+        glUniform2fv(location, count, static_cast<const GLfloat *>(ptr));
+        break;
+    case UboType::Vec3:
+        glUniform3fv(location, count, static_cast<const GLfloat *>(ptr));
+        break;
+    case UboType::Vec4:
+        glUniform4fv(location, count, static_cast<const GLfloat *>(ptr));
+        break;
+    case UboType::Mat4:
+        glUniformMatrix4fv(location, count, GL_FALSE, static_cast<const GLfloat *>(ptr));
+        break;
+    case UboType::Mat3x4:
+        glUniformMatrix3x4fv(location, count, GL_FALSE, static_cast<const GLfloat *>(ptr));
+        break;
+    }
+}
+
+static int UboTypeSize(UboType type)
+{
+    switch (type)
+    {
+    case UboType::Float:
+    case UboType::Int:
+    case UboType::Bool:
+        return 4;
+    case UboType::Vec2:
+        return 8;
+    case UboType::Vec3:
+        return 12;
+    case UboType::Vec4:
+        return 16;
+    case UboType::Mat4:
+        return 64;
+    case UboType::Mat3x4:
+        return 48;
+    }
+
+    GL3_ASSERT(false);
+    return 0;
+}
+
+static void FlushFlatUbos(BaseShader *shader, FlatUboBinding *flatUboBindings)
+{
+    FlatBlock *blocks = shader->flatBlocks;
+    if (!blocks)
+    {
+        return;
+    }
+
+    for (int i = 0; i < MaxUniformBlocks; i++)
+    {
+        FlatBlock &block = blocks[i];
+        if (!block.layout)
+        {
+            // not used by this program
+            continue;
+        }
+
+        const FlatUboBinding &binding = flatUboBindings[i];
+        if (block.sequence == binding.sequence)
+        {
+            // no change
+            continue;
+        }
+
+        // yes change... blast the glUniform* calls
+        block.sequence = binding.sequence;
+
+        const UboLayout *layout = block.layout;
+
+        for (int j = 0; j < layout->memberCount; j++)
+        {
+            GLint location = block.locations[j];
+            if (location == -1)
+            {
+                continue;
+            }
+
+            const UboMember &member = layout->members[j];
+
+            // clamp for bones
+            int count = member.count;
+            if (count > 1)
+            {
+                int maxCount = (binding.size - member.offset) / UboTypeSize(member.type);
+                count = Q_min(count, maxCount);
+                GL3_ASSERT(count > 0);
+            }
+
+            SetUniform(location, member, binding.data, count);
+        }
+    }
+}
+
 void commandExecute()
 {
     GL3_ASSERT(s_recording);
@@ -137,6 +254,10 @@ void commandExecute()
 
     GL3_ASSERT(s_size);
     GL3_ASSERT(s_readOffset == 0);
+
+    // ugh, need to store some state for the flattened ubos
+    BaseShader *shader = nullptr;
+    FlatUboBinding flatUboBindings[MaxUniformBlocks]{};
 
     while (!IsFinished())
     {
@@ -153,35 +274,28 @@ void commandExecute()
         break;
 
         case CmdBindUniformBuffer0:
-        {
-            //GLenum target = ReadWord<GLenum>();
-            //GLuint index = ReadWord<GLuint>();
-            GLuint buffer = ReadWord<GLuint>();
-            GLintptr offset = ReadWord<GLintptr>();
-            GLsizeiptr size = ReadWord<GLsizeiptr>();
-            glBindBufferRange(GL_UNIFORM_BUFFER, 0, buffer, offset, size);
-        }
-        break;
-
         case CmdBindUniformBuffer1:
-        {
-            //GLenum target = ReadWord<GLenum>();
-            //GLuint index = ReadWord<GLuint>();
-            GLuint buffer = ReadWord<GLuint>();
-            GLintptr offset = ReadWord<GLintptr>();
-            GLsizeiptr size = ReadWord<GLsizeiptr>();
-            glBindBufferRange(GL_UNIFORM_BUFFER, 1, buffer, offset, size);
-        }
-        break;
-
         case CmdBindUniformBuffer2:
+        case CmdBindUniformBuffer3:
         {
+            int binding = cmd - CmdBindUniformBuffer0;
             //GLenum target = ReadWord<GLenum>();
             //GLuint index = ReadWord<GLuint>();
             GLuint buffer = ReadWord<GLuint>();
             GLintptr offset = ReadWord<GLintptr>();
             GLsizeiptr size = ReadWord<GLsizeiptr>();
-            glBindBufferRange(GL_UNIFORM_BUFFER, 2, buffer, offset, size);
+            if (GLAD_GL_ARB_uniform_buffer_object)
+            {
+                glBindBufferRange(GL_UNIFORM_BUFFER, binding, buffer, offset, size);
+            }
+            else
+            {
+                // FIXME: bruh
+                static unsigned sequence;
+                flatUboBindings[binding].data = &g_flatUboData[offset];
+                flatUboBindings[binding].size = static_cast<int>(size);
+                flatUboBindings[binding].sequence = ++sequence;
+            }
         }
         break;
 
@@ -223,12 +337,27 @@ void commandExecute()
 
         case CmdDrawElementsBaseVertex:
         {
+            if (!GLAD_GL_ARB_uniform_buffer_object)
+            {
+                FlushFlatUbos(shader, flatUboBindings);
+            }
+
             //GLenum mode = ReadWord<GLenum>();
             GLsizei count = ReadWord<GLsizei>();
             //GLenum type = ReadWord<GLenum>();
             GLsizei offset = ReadWord<GLsizei>();
-            GLint basevertex = ReadWord<GLint>();
-            glDrawElementsBaseVertex(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, reinterpret_cast<const void *>(offset), basevertex);
+
+            if (GLAD_GL_ARB_draw_elements_base_vertex)
+            {
+                GLint basevertex = ReadWord<GLint>();
+                glDrawElementsBaseVertex(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, reinterpret_cast<const void *>(offset), basevertex);
+            }
+            else
+            {
+                // base vertex applied with vertex attribs
+                glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, reinterpret_cast<const void *>(offset));
+            }
+
 #ifdef SCHIZO_DEBUG
             g_state.drawcallCount++;
 #endif
@@ -278,8 +407,8 @@ void commandExecute()
 
         case CmdUseProgram:
         {
-            GLuint program = ReadWord<GLuint>();
-            glUseProgram(program);
+            shader = ReadWord<BaseShader *>();
+            glUseProgram(shader->program);
         }
         break;
 
@@ -289,8 +418,11 @@ void commandExecute()
 
             GLuint buffer = ReadWord<GLuint>();
             const VertexFormat *format = ReadWord<const VertexFormat *>();
+            int baseVertex = GLAD_GL_ARB_draw_elements_base_vertex ? 0 : ReadWord<int>();
+
             Span<const VertexAttrib> vertexAttribs = format->attribs;
             int vertexStride = format->stride;
+            int baseOffset = baseVertex * vertexStride;
 
             glBindBuffer(GL_ARRAY_BUFFER, buffer);
 
@@ -299,7 +431,7 @@ void commandExecute()
                 const VertexAttrib &attrib = vertexAttribs[i];
 
                 glEnableVertexAttribArray(i);
-                glVertexAttribPointer(i, attrib.size, attrib.type, attrib.normalized, vertexStride, reinterpret_cast<void *>(static_cast<intptr_t>(attrib.offset)));
+                glVertexAttribPointer(i, attrib.size, attrib.type, attrib.normalized, vertexStride, reinterpret_cast<void *>(static_cast<intptr_t>(baseOffset + attrib.offset)));
             }
 
             GL3_ASSERT(i <= MaxVertexAttribs);
@@ -375,7 +507,7 @@ void commandExecute()
 void commandBindUniformBuffer(GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size)
 {
     GL3_ASSERT(s_recording);
-    GL3_ASSERT(index == 0 || index == 1 || index == 2);
+    GL3_ASSERT(index < MaxUniformBlocks);
 
     WriteWord(CmdBindUniformBuffer0 + index);
     //WriteWord(index);
@@ -493,19 +625,24 @@ void commandDepthTest(GLboolean enable)
     }
 }
 
-void commandDrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, GLsizei offset, GLint basevertex)
+void commandDrawElements(GLenum mode, GLsizei count, GLenum type, GLsizei offset)
 {
     GL3_ASSERT(s_recording);
     GL3_ASSERT(mode == GL_TRIANGLES);
     GL3_ASSERT(type == GL_UNSIGNED_SHORT);
-    GL3_ASSERT(basevertex >= 0);
+    GL3_ASSERT(g_shadowState.baseVertex >= 0);
 
     WriteWord(CmdDrawElementsBaseVertex);
     //WriteWord(mode);
     WriteWord(count);
     //WriteWord(type);
     WriteWord(offset);
-    WriteWord(basevertex);
+
+    if (GLAD_GL_ARB_draw_elements_base_vertex)
+    {
+        // base vertex gets specified with the draw call
+        WriteWord(g_shadowState.baseVertex);
+    }
 }
 
 void commandPolygonOffset(GLfloat factor, GLfloat units)
@@ -524,7 +661,6 @@ void commandUniform1f(GLint location, GLfloat v0)
 
     if (location == -1)
     {
-        GL3_ASSERT(false); // wtf
         return;
     }
 
@@ -545,7 +681,6 @@ void commandUniform1i(GLint location, GLint v0)
 
     if (location == -1)
     {
-        //GL3_ASSERT(false);
         return;
     }
 
@@ -566,7 +701,6 @@ void commandUniform2f(GLint location, GLfloat v0, GLfloat v1)
 
     if (location == -1)
     {
-        //GL3_ASSERT(false);
         return;
     }
 
@@ -590,7 +724,7 @@ void commandUseProgram(BaseShader *shader)
     {
         g_shadowState.shader = shader;
         WriteWord(CmdUseProgram);
-        WriteWord(shader->program);
+        WriteWord(shader);
     }
 }
 
@@ -604,15 +738,35 @@ void commandBindIndexBuffer(GLuint buffer)
     }
 }
 
-void commandBindVertexBuffer(GLuint buffer, const VertexFormat &format)
+void commandBindVertexBuffer(GLuint buffer, const VertexFormat &format, int baseVertex)
 {
-    if (g_shadowState.vertexBuffer != buffer || g_shadowState.vertexFormat != &format)
+    if (GLAD_GL_ARB_draw_elements_base_vertex)
     {
-        g_shadowState.vertexBuffer = buffer;
-        g_shadowState.vertexFormat = &format;
-        WriteWord(CmdBindVertexBuffer);
-        WriteWord(buffer);
-        WriteWord(&format);
+        if (g_shadowState.vertexBuffer != buffer || g_shadowState.vertexFormat != &format)
+        {
+            g_shadowState.vertexBuffer = buffer;
+            g_shadowState.vertexFormat = &format;
+            WriteWord(CmdBindVertexBuffer);
+            WriteWord(buffer);
+            WriteWord(&format);
+        }
+
+        g_shadowState.baseVertex = baseVertex;
+    }
+    else
+    {
+        if (g_shadowState.vertexBuffer != buffer
+            || g_shadowState.vertexFormat != &format
+            || g_shadowState.baseVertex != baseVertex)
+        {
+            g_shadowState.vertexBuffer = buffer;
+            g_shadowState.vertexFormat = &format;
+            g_shadowState.baseVertex = baseVertex;
+            WriteWord(CmdBindVertexBuffer);
+            WriteWord(buffer);
+            WriteWord(&format);
+            WriteWord(baseVertex);
+        }
     }
 }
 

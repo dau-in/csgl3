@@ -12,8 +12,8 @@ if (MSVC)
     add_compile_options(/W4 /wd4100)
     add_compile_options(/arch:SSE2 /fp:fast /GS-)
 
-    #add_compile_options(/Zi)
-    #add_link_options(/DEBUG)
+    add_compile_options(/Zi)
+    add_link_options(/DEBUG)
 
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 else()
@@ -33,7 +33,7 @@ endif()
 option(MESHOPT_INSTALL "Install library" OFF)
 add_subdirectory(external/meshoptimizer)
 
-add_executable(shaderembed shaderembed/main.cpp)
+add_executable(shaderembed shaderembed/main.cpp shaderembed/ubo_flatten.cpp)
 target_include_directories(shaderembed PRIVATE external/stb)
 
 set(RENDER_SRC
@@ -49,6 +49,7 @@ set(RENDER_SRC
     render/hudgl3.cpp
     render/immediate.cpp
     render/internal_goldsrc.cpp
+    render/lightgamma.cpp
     render/lightmap.cpp
     render/lightstyle.cpp
     render/linmath.cpp

@@ -6,16 +6,23 @@
 // already defined, will cause a warning if the definition doesn't match
 #define MAX_LIGHTSTYLES 64
 
-// engine constants, already defined in studio.h
-// will cause a warning if the definition doesn't match
+// already defined, will cause a warning if the definition doesn't match
 #define MAXSTUDIOBONES 128
-#define MAX_SHADER_BONES MAXSTUDIOBONES
 
-// used to be shader permutation flags, should remove...
-#define STUDIO_SHADER_FLATSHADE (1 << 0) // flatshade texture flag
-#define STUDIO_SHADER_CHROME (1 << 1) // chrome texture flag
-#define STUDIO_SHADER_FULLBRIGHT (1 << 2) // fullbright texture flag
-#define STUDIO_SHADER_COLOR_ONLY (1 << 3) // use the color uniform as-is for tinting, used for additive and glowshell
+// used when ubos are not available
+// lower than MAXSTUDIOBONES so we can fit into 256 constant registers
+#define MAX_BONES_SM3 72
 
 // there's probably an engine constant for this...
 #define STUDIO_MAX_ELIGHTS 3
+
+// WARNING: our naive shader processor in shaderembed does not understand
+// ifdefs, so it's simply going to pick the last #define, which happens to
+// be correct (uniform reflection for glsl 1.20)
+#if !defined(__cplusplus)
+#if (__VERSION__ >= 140)
+#define MAX_SHADER_BONES MAXSTUDIOBONES
+#else
+#define MAX_SHADER_BONES MAX_BONES_SM3
+#endif
+#endif

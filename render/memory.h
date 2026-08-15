@@ -47,7 +47,6 @@ public:
     {
         if (!count)
         {
-            GL3_ASSERT(false);
             return nullptr;
         }
 

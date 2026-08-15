@@ -8,6 +8,12 @@
 #include "dynamicbuffer.h"
 #include "brush.h"
 
+// legacy trauma, only used locally
+#define STUDIO_SHADER_FLATSHADE (1 << 0) // flatshade texture flag
+#define STUDIO_SHADER_CHROME (1 << 1) // chrome texture flag
+#define STUDIO_SHADER_FULLBRIGHT (1 << 2) // fullbright texture flag
+#define STUDIO_SHADER_COLOR_ONLY (1 << 3) // use the color uniform as-is for tinting, used for additive and glowshell
+
 namespace Render
 {
 
@@ -15,36 +21,48 @@ namespace Render
 struct StudioConstants
 {
     Vector4 renderColor;
+    Vector4 renderColorLinear; // only used for elights
     Vector4 lightDir;
     Vector4 ambientAndShadeLight; // x = ambientlight, y = shadelight
     Vector4 chromeOriginAndShellScale; // chrome origin (xyz) and glowshell scale (w)
 
-    Vector4 elightPositions[STUDIO_MAX_ELIGHTS];
-    Vector4 elightColors[STUDIO_MAX_ELIGHTS]; // 4th component stores radius^2
-
-    // bones must be last! see StudioSetConstants
-    Matrix3x4 bones[MAX_SHADER_BONES];
+    // room for 4 lights, but only 3 used
+    float elights[3][4]; // x,y,z
+    float elightColors[3][4]; // r,g,b
 };
 
 static const VertexAttrib s_vertexAttribs[] = {
-    {&StudioVertex::position, "a_position" },
-    {&StudioVertex::texCoord, "a_texCoord" },
-    {&StudioVertex::bone, "a_bone" },
-    {&StudioVertex::normal, "a_normal", true }
+    { &StudioVertex::position, "a_position" },
+    { &StudioVertex::texCoord, "a_texCoord" },
+    { &StudioVertex::bone, "a_bone" },
+    { &StudioVertex::normal, "a_normal", true },
+    { &StudioVertex::smoothNormal, "a_smoothNormal", true }
 };
 
-const VertexFormat g_studioVertexFormat{ sizeof(StudioVertex) , s_vertexAttribs };
+const VertexFormat g_studioVertexFormat{ sizeof(StudioVertex), s_vertexAttribs };
 
 struct StudioShader : BaseShader
 {
     GLint u_viewmodel;
-    GLint u_flags;
+
+    // used to be flags...
+    GLint u_colorOnly;
+    GLint u_fullbright;
+    GLint u_flatshade;
+    GLint u_chrome;
+
+    // glowshell only
+    GLint u_uvScale;
 };
 
 static const ShaderUniform s_uniforms[] = {
     { "u_texture", 0 },
     { "u_viewmodel", &StudioShader::u_viewmodel },
-    { "u_flags", &StudioShader::u_flags },
+    { "u_colorOnly", &StudioShader::u_colorOnly },
+    { "u_fullbright", &StudioShader::u_fullbright },
+    { "u_flatshade", &StudioShader::u_flatshade },
+    { "u_chrome", &StudioShader::u_chrome },
+    { "u_uvScale", &StudioShader::u_uvScale },
 };
 
 static constexpr ShaderOption s_shaderOptions[] = {
@@ -61,6 +79,9 @@ struct StudioShaderOptions
 
 static StudioShader s_shaders[shaderVariantCount(s_shaderOptions)];
 
+// just use the same shader struct...
+static StudioShader s_shaderGlowShell;
+
 // cringe global state for shader selection
 static bool s_viewmodel;
 static StudioShader *s_currentShader;
@@ -71,6 +92,7 @@ static cvar_t *cl_righthand;
 void studioRenderInit()
 {
     shaderRegister(s_shaders, "studio", s_vertexAttribs, s_uniforms, s_shaderOptions);
+    shaderRegister(s_shaderGlowShell, "studio_glowshell", s_vertexAttribs, s_uniforms);
 
     r_glowshellfreq = g_engfuncs.pfnGetCvarPointer("r_glowshellfreq");
     cl_righthand = g_engfuncs.pfnGetCvarPointer("cl_righthand");
@@ -95,12 +117,11 @@ void studioSetupModel(StudioContext &context, int bodypartIndex, mstudiobodypart
 
     int model_index = (context.entity->curstate.body / bodypart->base) % bodypart->nummodels;
 
-    context.submodel = &submodels[model_index];
     context.rendererSubModel = &rendererBodypart->models[model_index];
 
     // set these for the game (most likely not used but just in case)
     *ppbodypart = bodypart;
-    *ppsubmodel = context.submodel;
+    *ppsubmodel = &submodels[model_index];
 }
 
 void studioEntityLight(StudioContext &context)
@@ -190,10 +211,9 @@ void studioEntityLight(StudioContext &context)
 
         context.elightPositions[index] = elight->origin;
 
-        context.elightColors[index].x = g_gammaLinearTable[elight->color.r] * (1.0f / 255.0f);
-        context.elightColors[index].y = g_gammaLinearTable[elight->color.g] * (1.0f / 255.0f);
-        context.elightColors[index].z = g_gammaLinearTable[elight->color.b] * (1.0f / 255.0f);
-        context.elightColors[index].w = radiusSquared;
+        context.elightColors[index].x = g_gammaLinearTable[elight->color.r] * (1.0f / 255.0f) * radiusSquared;
+        context.elightColors[index].y = g_gammaLinearTable[elight->color.g] * (1.0f / 255.0f) * radiusSquared;
+        context.elightColors[index].z = g_gammaLinearTable[elight->color.b] * (1.0f / 255.0f) * radiusSquared;
 
         if (index >= context.elightCount)
         {
@@ -245,36 +265,65 @@ static void StudioSetConstants(StudioContext &context)
         constants.chromeOriginAndShellScale = { g_state.viewOrigin, 0.0f };
     }
 
-    GL3_ASSERT(context.header->numbones <= MAX_SHADER_BONES);
+    // this is for the elights...
+    if (context.elightCount > 0)
+    {
+        constants.renderColorLinear.x = powf(constants.renderColor.x, g_gamma);
+        constants.renderColorLinear.y = powf(constants.renderColor.y, g_gamma);
+        constants.renderColorLinear.z = powf(constants.renderColor.z, g_gamma);
+        constants.renderColorLinear.w = 0.0f;
+    }
+
+    GL3_ASSERT(context.header->numbones <= MAXSTUDIOBONES);
 
     constants.lightDir = { context.lightvec, 0 };
     constants.ambientAndShadeLight = { context.ambientlight, context.shadelight, 0, 0 };
 
+    // the shader assumes this
+    static_assert(STUDIO_MAX_ELIGHTS == 3, "bruh");
+
     for (int i = 0; i < STUDIO_MAX_ELIGHTS; i++)
     {
-        constants.elightPositions[i] = { context.elightPositions[i], 0.0f };
-        constants.elightColors[i] = context.elightColors[i];
+        constants.elights[0][i] = context.elightPositions[i].x;
+        constants.elights[1][i] = context.elightPositions[i].y;
+        constants.elights[2][i] = context.elightPositions[i].z;
+        constants.elightColors[0][i] = context.elightColors[i].x;
+        constants.elightColors[1][i] = context.elightColors[i].y;
+        constants.elightColors[2][i] = context.elightColors[i].z;
     }
 
-    memcpy(static_cast<void *>(constants.bones), g_engineStudio.StudioGetBoneTransform(), sizeof(Matrix3x4) * context.header->numbones);
+    BufferSpan span = dynamicUniformData(&constants, sizeof(constants));
+    commandBindUniformBuffer(1, span.buffer, span.byteOffset, sizeof(constants));
+}
 
-    constexpr int bonelessSize = sizeof(constants) - sizeof(constants.bones);
-    int bonesSize = sizeof(Matrix3x4) * context.header->numbones;
-    int constantsSize = bonelessSize + bonesSize;
+static void StudioSetBonePalette(StudioContext &context, int paletteIndex)
+{
+    GL3_ASSERT(paletteIndex >= 0 && paletteIndex < context.cache->paletteCount);
+    const StudioBonePalette &palette = context.cache->palettes[paletteIndex];
 
-    BufferSpan span = dynamicUniformData(&constants, constantsSize);
-    commandBindUniformBuffer(1, span.buffer, span.byteOffset, constantsSize);
+    Matrix3x4 *boneMatrices = reinterpret_cast<Matrix3x4 *>(g_engineStudio.StudioGetBoneTransform());
+
+    Matrix3x4 constants[MAXSTUDIOBONES];
+    for (int i = 0; i < palette.boneCount; i++)
+    {
+        constants[i] = boneMatrices[palette.bones[i]];
+    }
+
+    int constantsSize = sizeof(Matrix3x4) * palette.boneCount;
+
+    BufferSpan span = dynamicUniformData(constants, constantsSize);
+    commandBindUniformBuffer(3, span.buffer, span.byteOffset, constantsSize);
+
+    context.bonePalette = paletteIndex;
 }
 
 void studioSetupRenderer(StudioContext &context, int rendermode)
 {
     context.rendermode = rendermode;
 
-    // set the model to be rendered
-    commandBindVertexBuffer(context.cache->vertexBuffer, g_studioVertexFormat);
+    // set the model to be rendered (vertex buffer set in studioDrawPoints)
     commandBindIndexBuffer(context.cache->indexBuffer);
 
-    // FIXME: bones uploaded twice for chromeshell
     StudioSetConstants(context);
 
     // set the rendermode here too
@@ -350,13 +399,23 @@ static int GetShaderFlags(StudioContext &context, int textureFlags)
 }
 
 // selects and uses the correct shader program, sets uniforms on the default block
-static void StudioUseProgram(StudioContext &context, int textureFlags)
+static void StudioUseProgram(StudioContext &context, mstudiotexture_t *texture, int textureFlags)
 {
-    StudioShaderOptions options{};
-    options.alphaTest = (textureFlags & STUDIO_NF_MASKED) ? 1 : 0;
-    options.hasElights = (context.elightCount > 0) ? 1 : 0;
+    StudioShader *shader;
 
-    StudioShader *shader = &shaderSelect(s_shaders, s_shaderOptions, options);
+    bool glowShell = (context.entity->curstate.renderfx == kRenderFxGlowShell);
+    if (glowShell)
+    {
+        shader = &s_shaderGlowShell;
+    }
+    else
+    {
+        StudioShaderOptions options{};
+        options.alphaTest = (textureFlags & STUDIO_NF_MASKED) ? 1 : 0;
+        options.hasElights = (context.elightCount > 0) ? 1 : 0;
+        shader = &shaderSelect(s_shaders, s_shaderOptions, options);
+    }
+
     if (shader != s_currentShader)
     {
         s_currentShader = shader;
@@ -364,8 +423,23 @@ static void StudioUseProgram(StudioContext &context, int textureFlags)
         commandUniform1i(s_currentShader->u_viewmodel, s_viewmodel);
     }
 
-    // update the flags uniform every time
-    commandUniform1i(shader->u_flags, GetShaderFlags(context, textureFlags));
+    if (glowShell)
+    {
+        // glowshell texture scale to match the engine look
+        // FIXME: this is not optimal.. should revisit and decide what to do
+        float xScale = 64.0f / static_cast<float>(texture->width);
+        float yScale = 64.0f / static_cast<float>(texture->height);
+        commandUniform2f(shader->u_uvScale, xScale, yScale);
+    }
+    else
+    {
+        // update the flags uniform every time
+        int shaderFlags = GetShaderFlags(context, textureFlags);
+        commandUniform1i(shader->u_colorOnly, (shaderFlags & STUDIO_SHADER_COLOR_ONLY) != 0);
+        commandUniform1i(shader->u_fullbright, (shaderFlags & STUDIO_SHADER_FULLBRIGHT) != 0);
+        commandUniform1i(shader->u_flatshade, (shaderFlags & STUDIO_SHADER_FLATSHADE) != 0);
+        commandUniform1i(shader->u_chrome, (shaderFlags & STUDIO_SHADER_CHROME) != 0);
+    }
 }
 
 void studioDrawPoints(StudioContext &context)
@@ -373,10 +447,8 @@ void studioDrawPoints(StudioContext &context)
     studiohdr_t *header = context.header;
     studiohdr_t *textureheader = studioTextureHeader(context.model, header);
 
-    mstudiomodel_t *submodel = context.submodel;
     StudioSubModel *mem_submodel = context.rendererSubModel;
 
-    mstudiomesh_t *meshes = (mstudiomesh_t *)((byte *)header + submodel->meshindex);
     mstudiotexture_t *textures = (mstudiotexture_t *)((byte *)textureheader + textureheader->textureindex);
 
     short *skins = (short *)((byte *)textureheader + textureheader->skinindex);
@@ -387,11 +459,15 @@ void studioDrawPoints(StudioContext &context)
         skins = &skins[skin * textureheader->numskinref];
     }
 
-    for (int i = 0; i < submodel->nummesh; i++)
+    for (int i = 0; i < mem_submodel->subMeshCount; i++)
     {
-        mstudiomesh_t *mesh = &meshes[i];
-        mstudiotexture_t *texture = &textures[skins[mesh->skinref]];
-        StudioMesh *mem_mesh = &mem_submodel->meshes[i];
+        StudioSubMesh *mem_mesh = &mem_submodel->subMeshes[i];
+        mstudiotexture_t *texture = &textures[skins[mem_mesh->skinref]];
+
+        if (mem_mesh->bonePalette != context.bonePalette)
+        {
+            StudioSetBonePalette(context, mem_mesh->bonePalette);
+        }
 
         bool additive = ((texture->flags & STUDIO_NF_ADDITIVE) && context.entity->curstate.rendermode == kRenderNormal);
         if (additive)
@@ -401,7 +477,7 @@ void studioDrawPoints(StudioContext &context)
             commandDepthMask(GL_FALSE);
         }
 
-        StudioUseProgram(context, texture->flags | g_engineStudio.GetForceFaceFlags());
+        StudioUseProgram(context, texture, texture->flags | g_engineStudio.GetForceFaceFlags());
 
         // FIXME: remaps won't work!!! we could have called StudioSetupSkin,
         // but now we have the command buffer system going on...
@@ -410,11 +486,12 @@ void studioDrawPoints(StudioContext &context)
             commandBindTexture(0, GL_TEXTURE_2D, texture->index);
         }
 
-        commandDrawElementsBaseVertex(GL_TRIANGLES,
+        commandBindVertexBuffer(context.cache->vertexBuffer, g_studioVertexFormat, mem_mesh->baseVertex);
+
+        commandDrawElements(GL_TRIANGLES,
             mem_mesh->indexCount,
             GL_UNSIGNED_SHORT,
-            mem_mesh->indexOffset_notbytes * sizeof(GLushort),
-            mem_mesh->baseVertex);
+            mem_mesh->indexOffsetInBytes);
 
         if (additive)
         {

@@ -134,7 +134,7 @@ void PostDrawHud(int screenWidth, int screenHeight)
 {
 #ifdef ENABLE_HUD
     DrawRenderHud(screenWidth);
- #endif
+#endif
 
     if (!g_state.active)
     {

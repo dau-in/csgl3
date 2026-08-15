@@ -6,8 +6,53 @@ in vec3 a_normal;
 in vec2 a_texCoord;
 in float a_bone;
 
+#if defined(GLOWSHELL)
+in vec3 a_smoothNormal;
+#endif
+
+// per studio model, must match c++ code
+layout(std140) uniform ModelConstants
+{
+    vec4 renderColor;
+    vec4 renderColorLinear; // only used by the elight path
+    vec4 lightDir;
+    vec4 ambientAndShadeLight; // x = ambientlight, y = shadelight
+    vec4 chromeOriginAndShellScale; // chrome origin (xyz) and glowshell scale (w)
+
+    // room for 4 lights, but only 3 used
+    vec4 elights[3]; // x,y,z
+    vec4 elightColors[3]; // r,g,b
+};
+
+layout(std140) uniform BoneConstants
+{
+    mat3x4 bones[MAX_SHADER_BONES];
+};
+
+// awful packing
+#define ambientLight ambientAndShadeLight.x
+#define shadeLight ambientAndShadeLight.y
+#define chromeOrigin chromeOriginAndShellScale.xyz
+#define shellScale chromeOriginAndShellScale.w
+
 uniform bool u_viewmodel; // FIXME
-uniform int u_flags;
+
+#if !defined(GLOWSHELL)
+// used to be u_flags, split into bools for GLSL 1.20
+uniform bool u_colorOnly;
+uniform bool u_fullbright;
+uniform bool u_flatshade;
+uniform bool u_chrome;
+#else
+// make these constants for glowshell,
+// the compiler will optimize them out (not)
+#define u_colorOnly true
+#define u_fullbright false
+#define u_flatshade false
+#define u_chrome true
+
+uniform vec2 u_uvScale;
+#endif
 
 out vec2 f_texCoord;
 out float f_fogFactor;
@@ -32,64 +77,56 @@ vec2 ChromeTexCoords(mat3x4 bone, vec3 normal)
 }
 
 #if defined(HAS_ELIGHTS)
-vec3 ApplyElights(vec3 srgb, vec3 position, vec3 normal)
+vec3 AddElights(vec3 position, vec3 normal)
 {
-    vec3 elights = vec3(0.0);
+    vec3 dx = elights[0].xyz - position.x;
+    vec3 dy = elights[1].xyz - position.y;
+    vec3 dz = elights[2].xyz - position.z;
 
-    for(int i = 0; i < STUDIO_MAX_ELIGHTS; i++)
-    {
-        // NOTE: not normalized
-        vec3 direction = elightPositions[i].xyz - position;
+    vec3 dist2 = dx * dx;
+    dist2 += dy * dy;
+    dist2 += dz * dz;
 
-        // wtf is this attenuation
-        float magnitudeSquared = dot(direction, direction);
-        float radiusSquared = elightColors[i].w;
+    vec3 r = inversesqrt(dist2);
+    vec3 atten = r * r * r;
 
-        float magrsqrt = inversesqrt(magnitudeSquared);
-        float attenuation = radiusSquared * (magrsqrt * magrsqrt * magrsqrt);
+    vec3 NdotL = dx * normal.x;
+    NdotL += dy * normal.y;
+    NdotL += dz * normal.z;
 
-        float NdotL = max(dot(normal, direction), 0.0);
-        elights += elightColors[i].rgb * NdotL * attenuation;
-    }
+    vec3 w = max(NdotL, vec3(0.0)) * atten;
 
-    vec3 linear = pow(srgb, vec3(k_gamma));
-    linear += elights;
-    return min(pow(linear, vec3(1.0 / k_gamma)), vec3(1.0));
+    return vec3(
+        dot(w, elightColors[0].rgb),
+        dot(w, elightColors[1].rgb),
+        dot(w, elightColors[2].rgb));
+}
+
+float ApplyBrightnessLinear(float value)
+{
+    float f = pow(value, k_lightgamma) * max(k_brightness, 1.0);
+    float a = (f / k_brighten) * 0.125;
+    float b = (f - k_brighten) / (1.0 - k_brighten) * 0.875 + 0.125;
+    return min(mix(a, b, step(k_brighten, f)), 1.0);
 }
 #endif
 
-// the reason this uses mix and step is that it used to take a vec3
-float Brighten(float f)
-{
-    float a = (f / k_brighten) * 0.125;
-    float b = (f - k_brighten) / (1.0 - k_brighten) * 0.875 + 0.125;
-    return mix(a, b, step(k_brighten, f));
-}
-
-float ApplyBrightness(float value)
-{
-    value = pow(value, float(k_lightgamma));
-    value *= max(k_brightness, 1.0);
-    value = Brighten(value);
-    return pow(value, float(1.0 / k_gamma));
-}
-
 vec4 ComputeColor(vec3 position, vec3 normal)
 {
-    if ((u_flags & STUDIO_SHADER_COLOR_ONLY) != 0)
+    if (u_colorOnly)
     {
         // color as-is, used for additive and glowshell
         return renderColor;
     }
 
-    if ((u_flags & STUDIO_SHADER_FULLBRIGHT) != 0)
+    if (u_fullbright)
     {
         // no lighting, alpha as-is
         return vec4(1.0, 1.0, 1.0, renderColor.a);
     }
 
     float diffuse;
-    if ((u_flags & STUDIO_SHADER_FLATSHADE) != 0)
+    if (u_flatshade)
     {
         diffuse = 0.8;
     }
@@ -102,12 +139,13 @@ vec4 ComputeColor(vec3 position, vec3 normal)
     }
 
     diffuse = ambientLight + (shadeLight * diffuse);
-    diffuse = min(ApplyBrightness(diffuse), 1.0);
-
-    vec3 color = renderColor.rgb * diffuse;
 
 #if defined(HAS_ELIGHTS)
-    color = ApplyElights(color, position, normal);
+    vec3 linear = renderColorLinear.rgb * ApplyBrightnessLinear(diffuse);
+    linear += AddElights(position, normal);
+    vec3 color = pow(min(linear, vec3(1.0)), vec3(1.0 / k_gamma));
+#else
+    vec3 color = renderColor.rgb * ApplyBrightness(diffuse);
 #endif
 
 #if defined(OVERBRIGHT)
@@ -120,15 +158,22 @@ vec4 ComputeColor(vec3 position, vec3 normal)
 void main()
 {
     mat3x4 bone = bones[int(a_bone)];
+	mat3x3 boneRot = mat3(bone);
 
     vec3 position = vec4(a_position, 1.0) * bone;
-    vec3 normal = normalize(a_normal * mat3(bone));
+    vec3 normal = normalize(a_normal * boneRot);
 
-    // shell effect
-    position += normal * shellScale;
+    f_texCoord = u_chrome ? ChromeTexCoords(bone, normal) : a_texCoord;
 
-    bool chrome = (u_flags & STUDIO_SHADER_CHROME) != 0;
-    f_texCoord = chrome ? ChromeTexCoords(bone, normal) : a_texCoord;
+	// glowshell bullshit
+#if defined(GLOWSHELL)
+	// apply the texcoord scale kludge
+	f_texCoord *= u_uvScale;
+
+	// woah, shell effect
+	// FIXME: normalize this without NaNs???
+	position += normalize(a_smoothNormal * boneRot) * shellScale;
+#endif
 
     f_color = ComputeColor(position, normal);
 

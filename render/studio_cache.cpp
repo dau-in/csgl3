@@ -29,6 +29,7 @@ struct StudioVertexFat
     Vector2 texCoord;
     float bone;
     Vector3 normal;
+    Vector3 smoothNormal;
 };
 
 struct BuildBuffer
@@ -45,7 +46,9 @@ static unsigned ParseTricmds(BuildBuffer *build,
     Vector3 *normals,
     byte *vertinfo,
     float s,
-    float t)
+    float t,
+    bool *isSkinnedBone,
+    Vector3 *smoothNormals)
 {
     unsigned baseVertex = build->vertexCount;
     unsigned startIndexCount = build->indexCount;
@@ -76,10 +79,18 @@ static unsigned ParseTricmds(BuildBuffer *build,
             vert->position = vertices[tricmds[0]];
             vert->normal = normals[tricmds[1]];
 
+            // FIXME: bruh... store the vertex index in smoothNormal
+            // for now so we can assign it after normalization, should
+            // refactor all of this later
+            smoothNormals[tricmds[0]] += vert->normal;
+            vert->smoothNormal.x = tricmds[0];
+
             vert->texCoord.x = s * tricmds[2];
             vert->texCoord.y = t * tricmds[3];
 
             vert->bone = vertinfo[tricmds[0]];
+
+            isSkinnedBone[vertinfo[tricmds[0]]] = true;
 
             tricmds += 4;
             vert++;
@@ -234,8 +245,12 @@ static void PackIndices(uint32_t *indices, unsigned count)
     }
 }
 
-static void PackNormal(int8_t(&dest)[4], const Vector3 &source)
+static void PackNormal(int8_t (&dest)[4], const Vector3 &source)
 {
+    GL3_ASSERT(source.x >= -1 && source.x <= 1);
+    GL3_ASSERT(source.y >= -1 && source.y <= 1);
+    GL3_ASSERT(source.z >= -1 && source.z <= 1);
+
     dest[0] = (int8_t)Lerp(INT8_MIN, INT8_MAX, 0.5f + (source.x * 0.5f));
     dest[1] = (int8_t)Lerp(INT8_MIN, INT8_MAX, 0.5f + (source.y * 0.5f));
     dest[2] = (int8_t)Lerp(INT8_MIN, INT8_MAX, 0.5f + (source.z * 0.5f));
@@ -256,6 +271,7 @@ static void PackVertices(StudioVertexFat *source, int count)
         to.texCoord = from.texCoord;
         to.bone = from.bone;
         PackNormal(to.normal, from.normal);
+        PackNormal(to.smoothNormal, from.smoothNormal);
     }
 }
 
@@ -279,6 +295,12 @@ static void BuildStudioVertexBuffer(StudioCache *cache, model_t *model, studiohd
 
     cache->bodyparts = memoryStaticAlloc<StudioBodypart>(header->numbodyparts);
 
+    // keep track of bones used for skinning
+    bool isSkinnedBone[MAXSTUDIOBONES]{};
+
+    // only increment the base vertex when we actually have to
+    unsigned baseVertex = 0;
+
     for (int i = 0; i < header->numbodyparts; i++)
     {
         mstudiobodyparts_t *bodypart = &bodyparts[i];
@@ -298,7 +320,12 @@ static void BuildStudioVertexBuffer(StudioCache *cache, model_t *model, studiohd
             byte *vertinfo = (byte *)((byte *)header + submodel->vertinfoindex);
 
             StudioSubModel *mem_model = &mem_bodypart->models[j];
-            mem_model->meshes = memoryStaticAlloc<StudioMesh>(submodel->nummesh);
+            mem_model->subMeshes = memoryStaticAlloc<StudioSubMesh>(submodel->nummesh);
+            mem_model->subMeshCount = submodel->nummesh;
+
+            // temporay working memory for computing smooth normals for glowshell
+            Vector3 *smoothNormals = temp.Alloc<Vector3>(submodel->numverts);
+            unsigned firstVertex = build.vertexCount;
 
             for (int k = 0; k < submodel->nummesh; k++)
             {
@@ -310,14 +337,78 @@ static void BuildStudioVertexBuffer(StudioCache *cache, model_t *model, studiohd
                 float t = 1.0f / (float)texture->height;
 
                 unsigned index_offset = build.indexCount;
-                unsigned baseVertex = ParseTricmds(&build, tricmds, vertices, normals, vertinfo, s, t);
+                unsigned usedBase = ParseTricmds(&build, tricmds, vertices, normals, vertinfo, s, t, isSkinnedBone, smoothNormals);
 
-                StudioMesh *mem_mesh = &mem_model->meshes[k];
-                mem_mesh->indexOffset_notbytes = index_offset;
+                if (build.vertexCount - baseVertex > UINT16_MAX + 1u)
+                {
+                    // this mesh won't fit at the current one
+                    baseVertex = usedBase;
+                }
+
+                // remap indices onto baseVertex
+                unsigned delta = usedBase - baseVertex;
+                if (delta)
+                {
+                    for (unsigned n = index_offset; n < build.indexCount; n++)
+                    {
+                        build.indices[n] += delta;
+                    }
+                }
+
+                StudioSubMesh *mem_mesh = &mem_model->subMeshes[k];
+                mem_mesh->bonePalette = 0;
+                mem_mesh->skinref = mesh->skinref;
+                mem_mesh->indexOffsetInBytes = index_offset * sizeof(GLushort);
                 mem_mesh->indexCount = build.indexCount - index_offset;
                 mem_mesh->baseVertex = baseVertex;
             }
+
+            for (int k = 0; k < submodel->numverts; k++)
+            {
+                VectorNormalize(smoothNormals[k]);
+            }
+
+            for (unsigned k = firstVertex; k < build.vertexCount; k++)
+            {
+                StudioVertexFat &vertex = build.vertices[k];
+                vertex.smoothNormal = smoothNormals[static_cast<short>(vertex.smoothNormal.x)];
+            }
         }
+    }
+
+    // temp stub for bone palettes...
+    cache->paletteCount = 1;
+    cache->palettes = memoryStaticAlloc<StudioBonePalette>(cache->paletteCount);
+    StudioBonePalette &palette = cache->palettes[0];
+
+    // build a skinned bone remap table so we won't trash
+    // constant registers with unused bone matrices
+    uint8_t boneRemap[MAXSTUDIOBONES];
+    for (int i = 0; i < header->numbones; i++)
+    {
+        if (isSkinnedBone[i])
+        {
+            boneRemap[i] = palette.boneCount & 0xff;
+            palette.bones[palette.boneCount++] = i & 0xff;
+        }
+    }
+
+    // can only hit on SM3 hardware... palettes are a pain in the ass
+    // so not sure if this is ever going to be actually implemented
+    int maxBones = GLAD_GL_ARB_uniform_buffer_object ? MAXSTUDIOBONES : MAX_BONES_SM3;
+    if (palette.boneCount > maxBones)
+    {
+        platformError("Model %s has too many skinned bones (%d, max %d), please open an issue",
+            model->name,
+            palette.boneCount,
+            maxBones);
+    }
+
+    // update vertex bone indices
+    for (unsigned i = 0; i < build.vertexCount; i++)
+    {
+        float &bone = build.vertices[i].bone;
+        bone = boneRemap[static_cast<int>(bone)];
     }
 
     // packing vertices afterwards

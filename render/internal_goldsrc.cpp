@@ -551,6 +551,20 @@ static void LoadFaces(const goldsrc::model_t &engineModel, gl3_worldmodel_t &mod
             full->styles[j] = NULL_LIGHTSTYLE;
         }
 
+#if 0
+        while (style_count > 1)
+        {
+            if (!IsEmpty(full, style_count - 1))
+            {
+                break;
+            }
+
+            full->styles[--style_count] = NULL_LIGHTSTYLE;
+        }
+#endif
+
+        full->style_count = style_count;
+
         // store style count in the thin surface
         if (style_count > 1)
         {
@@ -762,7 +776,7 @@ bool internalLoadBrushModel(model_t *model, gl3_worldmodel_t *outModel)
     for (int i = 0; i < outModel->numsurfaces; i++)
     {
         gl3_surface_t &surface = outModel->surfaces[i];
-        gl3_texture_t* texture = surface.texture;
+        gl3_texture_t *texture = surface.texture;
         if (!texture)
         {
             continue;
@@ -845,12 +859,33 @@ gl3_brushvert_t *internalBuildVertexBuffer(model_t *model, gl3_worldmodel_t *out
     // same loop again for populating the vertex buffer
     int vert_offset = 0;
 
+    // only increment the base vertex when we actually have to
+    int basevertex = 0;
+
     for (int texid = 0; texid < outModel->numtextures; texid++)
     {
-        int basevertex = vert_offset;
+        std::vector<int> &surfids = textureSurfaceIndices[texid];
+
+        // how many vertices this texture will add
+        int numtexverts = 0;
+        for (int j : surfids)
+        {
+            numtexverts += GetSurface(&engineModel, j)->numedges;
+        }
+
+        if (numtexverts > UINT16_MAX + 1)
+        {
+            platformError("Too many vertices per texture");
+        }
+
+        if (vert_offset + numtexverts - basevertex > UINT16_MAX + 1)
+        {
+            // this texture won't fit at the current one
+            basevertex = vert_offset;
+        }
+
         outModel->textures[texid].basevertex = basevertex;
 
-        std::vector<int> &surfids = textureSurfaceIndices[texid];
         for (int j : surfids)
         {
             const goldsrc::msurface_t *surface = GetSurface(&engineModel, j);
@@ -913,12 +948,6 @@ gl3_brushvert_t *internalBuildVertexBuffer(model_t *model, gl3_worldmodel_t *out
             }
 
             vert_offset += surface->numedges;
-        }
-
-        int vert_count = vert_offset - basevertex;
-        if (vert_count > UINT16_MAX)
-        {
-            platformError("Too many vertices per texture");
         }
     }
 

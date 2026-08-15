@@ -4,16 +4,20 @@
 namespace Render
 {
 
-struct StudioMesh
+struct StudioSubMesh
 {
-    unsigned indexOffset_notbytes;
+    int bonePalette;
+    int skinref;
+
+    unsigned indexOffsetInBytes;
     unsigned indexCount;
     unsigned baseVertex;
 };
 
 struct StudioSubModel
 {
-    StudioMesh *meshes;
+    int subMeshCount;
+    StudioSubMesh *subMeshes;
 };
 
 struct StudioBodypart
@@ -34,8 +38,14 @@ struct StudioVertex
     // to 2 degrees of accuracy, int8 component should have around 0.6)
     int8_t normal[4];
 
-    // could use for tangent or smooth normals
-    int8_t padding[4];
+    // only used for glowshell
+    int8_t smoothNormal[4];
+};
+
+struct StudioBonePalette
+{
+    int boneCount;
+    uint8_t bones[MAXSTUDIOBONES];
 };
 
 struct StudioCache
@@ -47,6 +57,11 @@ struct StudioCache
 
     GLuint vertexBuffer;
     GLuint indexBuffer;
+
+    // needed for when UBOs are not available and we encounter
+    // a model that uses more than 72 bones for skinning...
+    int paletteCount;
+    StudioBonePalette *palettes;
 };
 
 StudioCache *studioCacheGet(model_t *model, studiohdr_t *header);

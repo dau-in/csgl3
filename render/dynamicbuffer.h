@@ -3,7 +3,7 @@
 
 namespace Render
 {
-template <typename T>
+template<typename T>
 struct BufferSpanT
 {
     GLuint buffer;
@@ -12,6 +12,10 @@ struct BufferSpanT
 };
 
 using BufferSpan = BufferSpanT<void>;
+
+// used when the implementation doesn't support constant buffers,
+// the constant data gets copied to corresponding registers from here
+extern uint8_t g_flatUboData[];
 
 void dynamicBuffersInit();
 

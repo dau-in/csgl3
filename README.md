@@ -3,9 +3,10 @@
 
 ## Requirements
 
-* OpenGL 3.1 or later
-* ARB_draw_elements_base_vertex
+* OpenGL 2.1 or later on SM3 capable hardware*
 * Any Steam version of the game on either Windows or Linux
+
+<sub>*OpenGL 3.x capable hardware required for a sane experience</sub>
 
 ## Missing features
 
@@ -27,7 +28,6 @@ The renderer tries to remain faithful to the engine's renderer, but there are so
 * Water waves have no varying height
 * Fog behaviour on translucent entities is different
 * Underwater fog uses an exponential-squared falloff rather than linear
-* Studio model glowshell effect may look different
 * Chrome textures on models are not constrained to 64x64 and may appear different
 * Fullbright texture flag on studio models is supported
 * Skybox textures are no longer limited to 256x256, but all faces must have the same size

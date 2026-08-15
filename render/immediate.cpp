@@ -65,14 +65,12 @@ static void Flush()
     GL3_ASSERT(indexCount > 0);
 
     int indexOffset = s_indexSpan.byteOffset + s_lastDrawIndexCount * sizeof(uint16_t);
-    int baseVertex = s_vertexSpan.byteOffset / sizeof(ImmediateVertex);
 
-    commandDrawElementsBaseVertex(
+    commandDrawElements(
         GL_TRIANGLES,
         indexCount,
         GL_UNSIGNED_SHORT,
-        indexOffset,
-        baseVertex);
+        indexOffset);
 
     s_lastDrawIndexCount = s_totalIndexCount;
 }
@@ -99,7 +97,9 @@ void immediateDrawStart(bool alphaTest)
     s_totalIndexCount = 0;
     s_lastDrawIndexCount = 0;
 
-    commandBindVertexBuffer(s_vertexSpan.buffer, s_vertexFormat);
+    int baseVertex = s_vertexSpan.byteOffset / sizeof(ImmediateVertex);
+    commandBindVertexBuffer(s_vertexSpan.buffer, s_vertexFormat, baseVertex);
+
     commandBindIndexBuffer(s_indexSpan.buffer);
 
     SpriteShaderOptions options{};

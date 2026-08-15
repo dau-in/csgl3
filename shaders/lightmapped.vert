@@ -12,8 +12,8 @@ uniform float u_scroll;
 out vec3 fragPosition;
 out vec4 texCoord;
 
-flat out vec4 f_lightmapWeights;
-flat out float f_lightmapWidth;
+out vec4 f_lightmapWeights;
+out float f_lightmapWidth;
 
 out float f_fogFactor;
 
@@ -22,7 +22,7 @@ void main()
     texCoord = vec4(a_texCoord, a_lightmapTexCoord);
     texCoord.x += u_scroll;
 
-    uvec4 styles = uvec4(a_styles);
+    ivec4 styles = ivec4(a_styles);
     f_lightmapWeights.x = lightstyles[styles.x].x;
     f_lightmapWeights.y = lightstyles[styles.y].x;
     f_lightmapWeights.z = lightstyles[styles.z].x;

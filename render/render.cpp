@@ -57,8 +57,9 @@ struct FrameConstants
 
     Vector4 clientTime; // FIXME: could pack with... something
 
-    Vector4 lightPositions[MAX_SHADER_LIGHTS]; // w stores 1/radius
-    Vector4 lightColors[MAX_SHADER_LIGHTS];
+    // 4 lights
+    float dlights[4][MAX_SHADER_LIGHTS]; // x,y,z,1/radius^2
+    float dlightColors[3][MAX_SHADER_LIGHTS]; // r,g,b
 
     // accessed with lightstyles[i].x
     Vector4 lightstyles[MAX_LIGHTSTYLES];
@@ -194,6 +195,24 @@ static void RestoreState()
     internalClearBoundTexture();
 }
 
+// win32 only, assuming mesa3d otherwise
+static bool IsCrappyIntelICD()
+{
+#ifdef _WIN32
+    if (GLVersion.major > 3)
+    {
+        // ivy bridge or above, probably ok
+        return false;
+    }
+
+    // if it's intel gl <= 3 on windows, it must be a crappy icd
+    const char *renderer = (const char *)glGetString(GL_RENDERER);
+    return strstr(renderer, "Intel") != nullptr;
+#else
+    return false;
+#endif
+}
+
 #ifdef GL_ERROR_CHECK
 void APIENTRY MessageCallback(GLenum source,
     GLenum type,
@@ -236,14 +255,19 @@ void Initialize(struct engine_studio_api_s *studio, r_studio_interface_s **pinte
         platformError("Could not load OpenGL functions");
     }
 
-    if (!GLAD_GL_VERSION_3_1)
+    if (!GLAD_GL_VERSION_2_1)
     {
-        platformError("OpenGL 3.1 required, current context is %d.%d", GLVersion.major, GLVersion.minor);
+        platformError("OpenGL 2.1 required, current context is %d.%d", GLVersion.major, GLVersion.minor);
     }
 
-    if (!GLAD_GL_ARB_draw_elements_base_vertex)
+    // see if we should disable some extensions
+    if (GLAD_GL_ARB_uniform_buffer_object)
     {
-        platformError("ARB_draw_elements_base_vertex required");
+        if (IsCrappyIntelICD())
+        {
+            // sandy bridge, ubos technically supported but unusable
+            GLAD_GL_ARB_uniform_buffer_object = 0;
+        }
     }
 
     // calls platformError on failure
@@ -464,6 +488,12 @@ static int UpdateFrameConstants(const Matrix4 &vmViewProjectionMatrix)
 
     int numLights = 0;
 
+    // the shader assumes this
+    static_assert(MAX_SHADER_LIGHTS == 4, "bruh");
+
+    memset(frameConstants.dlights, 0, sizeof(frameConstants.dlights));
+    memset(frameConstants.dlightColors, 0, sizeof(frameConstants.dlightColors));
+
     for (int i = 0; i < MAX_DLIGHTS; i++)
     {
         dlight_t *light = &g_dlights[i];
@@ -483,19 +513,17 @@ static int UpdateFrameConstants(const Matrix4 &vmViewProjectionMatrix)
             break;
         }
 
-        frameConstants.lightPositions[numLights] = { light->origin, 1.0f / light->radius };
+        frameConstants.dlights[0][numLights] = light->origin.x;
+        frameConstants.dlights[1][numLights] = light->origin.y;
+        frameConstants.dlights[2][numLights] = light->origin.z;
+        frameConstants.dlights[3][numLights] = 1.0f / (light->radius * light->radius);
 
-        frameConstants.lightColors[numLights].x = static_cast<float>(light->color.r) / 255.0f;
-        frameConstants.lightColors[numLights].y = static_cast<float>(light->color.g) / 255.0f;
-        frameConstants.lightColors[numLights].z = static_cast<float>(light->color.b) / 255.0f;
+        float scale = light->radius * (1.0f / 256.0f);
+        frameConstants.dlightColors[0][numLights] = (light->color.r / 255.0f) * scale;
+        frameConstants.dlightColors[1][numLights] = (light->color.g / 255.0f) * scale;
+        frameConstants.dlightColors[2][numLights] = (light->color.b / 255.0f) * scale;
 
         numLights++;
-    }
-
-    for (int i = numLights; i < MAX_SHADER_LIGHTS; i++)
-    {
-        frameConstants.lightPositions[i] = {};
-        frameConstants.lightColors[i] = {};
     }
 
     frameConstants.clientTime.x = g_engfuncs.GetClientTime();
@@ -536,7 +564,7 @@ static void UpdateFogConstants()
 {
     FogConstants noFogConstants;
     noFogConstants.fogColor = { 0.0f, 1.0f, 0.0f, 1.0f };
-    noFogConstants.fogParams = { 1.0f, 1.0f, 0.0f, 0.0f };
+    noFogConstants.fogParams = { 0.0f, 1.0f, 0.0f, 0.0f };
     s_fogConstants[false] = dynamicUniformData(&noFogConstants, sizeof(FogConstants));
 
     if (g_state.sceneHasFog)

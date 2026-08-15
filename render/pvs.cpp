@@ -6,7 +6,7 @@ namespace Render
 {
 
 int g_pvsFrame;
-static gl3_leaf_t* s_lastLeaf;
+static gl3_leaf_t *s_lastLeaf;
 
 static gl3_leaf_t *LeafAtPoint(const Vector3 &point)
 {
