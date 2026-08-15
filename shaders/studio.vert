@@ -1,5 +1,4 @@
 #include "common.glsl"
-#include "studio_common.glsl"
 
 in vec3 a_position;
 in vec3 a_normal;
