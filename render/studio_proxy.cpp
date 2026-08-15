@@ -120,6 +120,7 @@ static void StudioSetupLighting(struct alight_s *plighting)
         s_context.model = s_model;
         s_context.header = s_header;
         s_context.cache = studioCacheGet(s_model, s_header);
+        s_context.bonePalette = -1;
 
         studioSetupLighting(s_context, plighting);
     }
@@ -344,8 +345,6 @@ void studioProxyDrawEntity(int flags, cl_entity_t *entity, float blend)
 
     s_context.entity = entity;
     s_context.blend = blend;
-
-    s_context.bonePalette = -1;
 
     GL3_ASSERT(entity->curstate.movetype != MOVETYPE_FOLLOW);
     GL3_ASSERT(!entity->curstate.aiment);
