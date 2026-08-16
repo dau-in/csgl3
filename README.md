@@ -13,7 +13,6 @@
 * Most of the EFX API is not implemented
 * Most beam types are not implemented
 * Most rendering related cvars do not work with the renderer (e.g. gl_wireframe, r_fullbright)
-* Studio model texture color remaps are not implemented
 * Spectator subviews do not draw properly
 * Tiling textures are not implemented
 

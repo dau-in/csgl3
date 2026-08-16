@@ -89,6 +89,16 @@ inline int Q_strcasecmp(const char *s1, const char *s2)
 #endif
 }
 
+inline int Q_strcasecmp(const char *s1, const char *s2, size_t n)
+{
+#ifdef _MSC_VER
+    return _strnicmp(s1, s2, n);
+#else
+    return strncasecmp(s1, s2, n);
+#endif
+}
+
+
 // 32-bit FNV-1a
 inline uint32_t HashString(const char *string)
 {

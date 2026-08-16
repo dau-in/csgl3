@@ -8,12 +8,6 @@
 #include "dynamicbuffer.h"
 #include "brush.h"
 
-// legacy trauma, only used locally
-#define STUDIO_SHADER_FLATSHADE (1 << 0) // flatshade texture flag
-#define STUDIO_SHADER_CHROME (1 << 1) // chrome texture flag
-#define STUDIO_SHADER_FULLBRIGHT (1 << 2) // fullbright texture flag
-#define STUDIO_SHADER_COLOR_ONLY (1 << 3) // use the color uniform as-is for tinting, used for additive and glowshell
-
 namespace Render
 {
 
@@ -368,36 +362,6 @@ void studioRestoreRenderer(StudioContext &context)
     }
 }
 
-static int GetShaderFlags(StudioContext &context, int textureFlags)
-{
-    int shaderFlags = 0;
-
-    if (textureFlags & STUDIO_NF_CHROME)
-    {
-        shaderFlags |= STUDIO_SHADER_CHROME;
-    }
-
-    if (context.rendermode == kRenderTransAdd
-        || context.entity->curstate.renderfx == kRenderFxGlowShell)
-    {
-        shaderFlags |= STUDIO_SHADER_COLOR_ONLY;
-    }
-    else
-    {
-        if (textureFlags & STUDIO_NF_FLATSHADE)
-        {
-            shaderFlags |= STUDIO_SHADER_FLATSHADE;
-        }
-
-        if (textureFlags & STUDIO_NF_FULLBRIGHT)
-        {
-            shaderFlags |= STUDIO_SHADER_FULLBRIGHT;
-        }
-    }
-
-    return shaderFlags;
-}
-
 // selects and uses the correct shader program, sets uniforms on the default block
 static void StudioUseProgram(StudioContext &context, mstudiotexture_t *texture, int textureFlags)
 {
@@ -434,12 +398,61 @@ static void StudioUseProgram(StudioContext &context, mstudiotexture_t *texture, 
     else
     {
         // update the flags uniform every time
-        int shaderFlags = GetShaderFlags(context, textureFlags);
-        commandUniform1i(shader->u_colorOnly, (shaderFlags & STUDIO_SHADER_COLOR_ONLY) != 0);
-        commandUniform1i(shader->u_fullbright, (shaderFlags & STUDIO_SHADER_FULLBRIGHT) != 0);
-        commandUniform1i(shader->u_flatshade, (shaderFlags & STUDIO_SHADER_FLATSHADE) != 0);
-        commandUniform1i(shader->u_chrome, (shaderFlags & STUDIO_SHADER_CHROME) != 0);
+        commandUniform1i(shader->u_colorOnly, (context.rendermode == kRenderTransAdd));
+        commandUniform1i(shader->u_fullbright, (textureFlags & STUDIO_NF_FULLBRIGHT) != 0);
+        commandUniform1i(shader->u_flatshade, (textureFlags & STUDIO_NF_FLATSHADE) != 0);
+        commandUniform1i(shader->u_chrome, (textureFlags & STUDIO_NF_CHROME) != 0);
     }
+}
+
+static bool IsRemapSkin(const char *texture)
+{
+    if (!Q_strcasecmp(texture, "DM_Base.bmp"))
+    {
+        // old system
+        return true;
+    }
+
+    if (Q_strcasecmp(texture, "Remap", 5))
+    {
+        // not remapped
+        return false;
+    }
+
+    size_t length = strlen(texture);
+    if (length == 18)
+    {
+        // short form REMAPC_???_???.BMP
+        return (texture[5] == 'c' || texture[5] == 'C');
+    }
+
+    // long form REMAP?_???_???_???.BMP
+    return (length == 22);
+}
+
+static bool SetupSkin(cl_entity_t *entity, studiohdr_t *textureheader, mstudiotexture_t *texture, int textureIndex)
+{
+    // avoid calling StudioSetupSkin by any means necessary
+    if (entity->index <= 0 || !IsRemapSkin(texture->name))
+    {
+        return false;
+    }
+
+    // this will do all of the fucked up stuff and eventually call glBindTexture
+    g_engineStudio.StudioSetupSkin(textureheader, textureIndex);
+
+#ifdef SCHIZO_DEBUG
+    GLint activeTexture;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
+    GL3_ASSERT(activeTexture == GL_TEXTURE0);
+#endif
+
+    // get the right texture from the driver shadow state
+    // common sense would suggest that this wouldn't cause any issues, but i guess we'll see...
+    GLint textureName;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &textureName);
+    commandBindTexture(0, GL_TEXTURE_2D, textureName);
+    return true;
 }
 
 void studioDrawPoints(StudioContext &context)
@@ -462,7 +475,8 @@ void studioDrawPoints(StudioContext &context)
     for (int i = 0; i < mem_submodel->subMeshCount; i++)
     {
         StudioSubMesh *mem_mesh = &mem_submodel->subMeshes[i];
-        mstudiotexture_t *texture = &textures[skins[mem_mesh->skinref]];
+        int textureIndex = skins[mem_mesh->skinref];
+        mstudiotexture_t *texture = &textures[textureIndex];
 
         if (mem_mesh->bonePalette != context.bonePalette)
         {
@@ -483,7 +497,10 @@ void studioDrawPoints(StudioContext &context)
         // but now we have the command buffer system going on...
         if ((g_engineStudio.GetForceFaceFlags() & STUDIO_NF_CHROME) == 0)
         {
-            commandBindTexture(0, GL_TEXTURE_2D, texture->index);
+            if (!SetupSkin(context.entity, textureheader, texture, textureIndex))
+            {
+                commandBindTexture(0, GL_TEXTURE_2D, texture->index);
+            }
         }
 
         commandBindVertexBuffer(context.cache->vertexBuffer, g_studioVertexFormat, mem_mesh->baseVertex);

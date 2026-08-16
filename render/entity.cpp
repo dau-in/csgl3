@@ -97,9 +97,14 @@ void entityDrawViewmodel(int drawFlags)
         // FIXME: no need to call these when not drawing??? shouldn't affect gl state at all
         studioBeginModels(true);
 
-        // FIXME: missing stuff (colormap for example...)
+        // FIXME: still missing stuff?
         viewmodel->curstate.frame = 0;
         viewmodel->curstate.framerate = 1;
+
+        // FIXME: bullshit!!! what was the proper way to get local player info???
+        int playerNum = g_engfuncs.GetLocalPlayer()->index - 1;
+        player_info_t *playerInfo = g_engineStudio.PlayerInfo(playerNum);
+        viewmodel->curstate.colormap = ((playerInfo->topcolor & 0xff) | ((playerInfo->bottomcolor << 8) & 0xff));
 
         internalUpdateViewmodelAnimation(viewmodel);
 

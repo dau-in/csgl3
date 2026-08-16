@@ -182,7 +182,8 @@ static void StudioSetRemapColors(int top, int bottom)
         orig_studio.StudioSetRemapColors(top, bottom);
     else
     {
-        NOT_IMPL();
+        // FIXME: might not want to do this later
+        orig_studio.StudioSetRemapColors(top, bottom);
     }
 }
 
@@ -215,6 +216,9 @@ static void SetRenderModel(model_t *model)
     else
     {
         s_model = model;
+
+        // FIXME: added back for remaps, should be removed once those are sorted out
+        orig_studio.SetRenderModel(model);
     }
 }
 
