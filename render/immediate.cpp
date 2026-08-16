@@ -12,7 +12,6 @@ struct ImmediateVertex
     Vector3 position;
     Vector2 texCoord;
     uint8_t color[4];
-    uint8_t padding[8];
 };
 
 static const VertexAttrib s_vertexAttribs[] = {
@@ -41,66 +40,66 @@ static BaseShader s_shaders[shaderVariantCount(s_shaderOptions)];
 
 static bool s_active;
 
-static BufferSpanT<ImmediateVertex> s_vertexSpan;
-static BufferSpanT<uint16_t> s_indexSpan;
-static int s_totalVertexCount;
-static int s_totalIndexCount;
-static int s_lastDrawIndexCount;
+static std::vector<ImmediateVertex> s_stageVertices;
+static std::vector<uint16_t> s_stageIndices;
+
 static GLenum s_currentMode;
-static int s_primitiveVertexCount;
-static int s_primitiveStartVertex;
+static size_t s_primitiveStartVertex;
 
 // current vertex attributes
-static Color32 s_currentColor;
-static Vector2 s_currentTexCoord;
+static ImmediateVertex s_currentVertex;
 
 static void Flush()
 {
-    int indexCount = s_totalIndexCount - s_lastDrawIndexCount;
-    if (!indexCount)
+    if (s_stageIndices.empty())
     {
         return;
     }
 
-    GL3_ASSERT(indexCount > 0);
+    // FIXME: vertex count can technically overflow index max
+    int vertexCount = (static_cast<int>(s_stageVertices.size()));
+    auto vertexSpan = dynamicVertexDataBegin<ImmediateVertex>(vertexCount);
+    std::copy(s_stageVertices.begin(), s_stageVertices.end(), vertexSpan.data);
+    dynamicVertexDataEnd<ImmediateVertex>(vertexCount);
 
-    int indexOffset = s_indexSpan.byteOffset + s_lastDrawIndexCount * sizeof(uint16_t);
+    int indexCount = static_cast<int>(s_stageIndices.size());
+    auto indexSpan = dynamicIndexDataBegin<uint16_t>(static_cast<int>(s_stageIndices.size()));
+    std::copy(s_stageIndices.begin(), s_stageIndices.end(), indexSpan.data);
+    dynamicIndexDataEnd<uint16_t>(indexCount);
+
+    // FIXME: it would be nice if the base vertex didn't change as often...
+    int baseVertex = vertexSpan.byteOffset / sizeof(ImmediateVertex);
+    commandBindVertexBuffer(vertexSpan.buffer, s_vertexFormat, baseVertex);
+
+    commandBindIndexBuffer(indexSpan.buffer);
 
     commandDrawElements(
         GL_TRIANGLES,
         indexCount,
         GL_UNSIGNED_SHORT,
-        indexOffset);
+        indexSpan.byteOffset);
 
-    s_lastDrawIndexCount = s_totalIndexCount;
-}
-
-void immediateInit()
-{
-    shaderRegister(s_shaders, "sprite", s_vertexAttribs, s_uniforms, s_shaderOptions);
+    s_stageVertices.clear();
+    s_stageIndices.clear();
 }
 
 // FIXME: isn't this too small? our dynamic vertex buffers are tiny
-constexpr int MaxVertexCount = 8192;
+constexpr int ReserveVertexCount = 16384;
 
-// all quads is the worst case for now
-constexpr int MaxIndexCount = (MaxVertexCount * 3) / 2;
+// all quad strips is the worst case for now
+constexpr int ReserveIndexCount = (ReserveVertexCount * 6) / 2;
+
+void immediateInit()
+{
+    s_stageVertices.reserve(ReserveVertexCount);
+    s_stageIndices.reserve(ReserveIndexCount);
+    shaderRegister(s_shaders, "sprite", s_vertexAttribs, s_uniforms, s_shaderOptions);
+}
 
 void immediateDrawStart(bool alphaTest)
 {
     GL3_ASSERT(!s_active);
     s_active = true;
-
-    s_vertexSpan = dynamicVertexDataBegin<ImmediateVertex>(MaxVertexCount);
-    s_indexSpan = dynamicIndexDataBegin<uint16_t>(MaxIndexCount);
-    s_totalVertexCount = 0;
-    s_totalIndexCount = 0;
-    s_lastDrawIndexCount = 0;
-
-    int baseVertex = s_vertexSpan.byteOffset / sizeof(ImmediateVertex);
-    commandBindVertexBuffer(s_vertexSpan.buffer, s_vertexFormat, baseVertex);
-
-    commandBindIndexBuffer(s_indexSpan.buffer);
 
     SpriteShaderOptions options{};
     options.alphaTest = alphaTest ? 1 : 0;
@@ -113,9 +112,6 @@ void immediateDrawEnd()
     GL3_ASSERT(s_active);
 
     Flush();
-
-    dynamicVertexDataEnd<ImmediateVertex>(s_totalVertexCount);
-    dynamicIndexDataEnd<uint16_t>(s_totalIndexCount);
 
     // restore state... this is dumb but no other way currently
     commandBlendEnable(GL_FALSE);
@@ -202,74 +198,110 @@ void immediateBegin(GLenum mode)
     GL3_ASSERT(s_active);
 
     s_currentMode = mode;
-    s_primitiveVertexCount = 0;
-    s_primitiveStartVertex = s_totalVertexCount;
+    s_primitiveStartVertex = s_stageVertices.size();
 }
 
 void immediateColor4f(float r, float g, float b, float a)
 {
     GL3_ASSERT(s_active);
 
-    s_currentColor.r = static_cast<uint8_t>(Q_clamp(r * 255.0f, 0.0f, 255.0f));
-    s_currentColor.g = static_cast<uint8_t>(Q_clamp(g * 255.0f, 0.0f, 255.0f));
-    s_currentColor.b = static_cast<uint8_t>(Q_clamp(b * 255.0f, 0.0f, 255.0f));
-    s_currentColor.a = static_cast<uint8_t>(Q_clamp(a * 255.0f, 0.0f, 255.0f));
+    s_currentVertex.color[0] = static_cast<uint8_t>(Q_clamp(r * 255.0f, 0.0f, 255.0f));
+    s_currentVertex.color[1] = static_cast<uint8_t>(Q_clamp(g * 255.0f, 0.0f, 255.0f));
+    s_currentVertex.color[2] = static_cast<uint8_t>(Q_clamp(b * 255.0f, 0.0f, 255.0f));
+    s_currentVertex.color[3] = static_cast<uint8_t>(Q_clamp(a * 255.0f, 0.0f, 255.0f));
 }
 
 void immediateTexCoord2f(float s, float t)
 {
     GL3_ASSERT(s_active);
-    s_currentTexCoord = { s, t };
+
+    s_currentVertex.texCoord = { s, t };
 }
 
 void immediateVertex3f(float x, float y, float z)
 {
     GL3_ASSERT(s_active);
 
-    ImmediateVertex *v = &s_vertexSpan.data[s_totalVertexCount];
-    v->position = { x, y, z };
-    v->texCoord = s_currentTexCoord;
-    v->color[0] = s_currentColor.r;
-    v->color[1] = s_currentColor.g;
-    v->color[2] = s_currentColor.b;
-    v->color[3] = s_currentColor.a;
+    s_currentVertex.position = { x, y, z };
+    s_stageVertices.push_back(s_currentVertex);
+}
 
-    s_totalVertexCount++;
-    s_primitiveVertexCount++;
+static void EmitTRIANGLES(size_t vertexStart, size_t vertexEnd)
+{
+    for (size_t i = vertexStart; i < vertexEnd; i += 3)
+    {
+        uint16_t indices[] = {
+            static_cast<uint16_t>(i + 0),
+            static_cast<uint16_t>(i + 1),
+            static_cast<uint16_t>(i + 2)
+        };
+
+        s_stageIndices.insert(s_stageIndices.end(), std::begin(indices), std::end(indices));
+    }
+}
+
+static void EmitQUADS(size_t vertexStart, size_t vertexEnd)
+{
+    for (size_t i = vertexStart; i < vertexEnd; i += 4)
+    {
+        uint16_t indices[] = {
+            static_cast<uint16_t>(i + 0),
+            static_cast<uint16_t>(i + 1),
+            static_cast<uint16_t>(i + 2),
+            static_cast<uint16_t>(i + 0),
+            static_cast<uint16_t>(i + 2),
+            static_cast<uint16_t>(i + 3)
+        };
+
+        s_stageIndices.insert(s_stageIndices.end(), std::begin(indices), std::end(indices));
+    }
+}
+
+static void EmitQUAD_STRIP(size_t vertexStart, size_t vertexEnd)
+{
+    for (size_t i = vertexStart + 2; i < vertexEnd; i += 2)
+    {
+        uint16_t indices[] = {
+            static_cast<uint16_t>(i - 2),
+            static_cast<uint16_t>(i - 1),
+            static_cast<uint16_t>(i + 1),
+            static_cast<uint16_t>(i - 2),
+            static_cast<uint16_t>(i + 1),
+            static_cast<uint16_t>(i + 0)
+        };
+
+        s_stageIndices.insert(s_stageIndices.end(), std::begin(indices), std::end(indices));
+    }
 }
 
 void immediateEnd()
 {
     GL3_ASSERT(s_active);
 
-    if (s_currentMode == GL_TRIANGLES)
+    GL3_ASSERT(s_stageVertices.size() >= s_primitiveStartVertex);
+
+    size_t vertexStart = s_primitiveStartVertex;
+    size_t vertexEnd = s_stageVertices.size();
+
+    // FIXME: incomplete primitives are not handled
+    switch (s_currentMode)
     {
-        int triangleCount = s_primitiveVertexCount / 3;
-        for (int i = 0; i < triangleCount; i++)
-        {
-            uint16_t base = static_cast<uint16_t>(s_primitiveStartVertex + i * 3);
-            s_indexSpan.data[s_totalIndexCount++] = base + 0;
-            s_indexSpan.data[s_totalIndexCount++] = base + 1;
-            s_indexSpan.data[s_totalIndexCount++] = base + 2;
-        }
-    }
-    else if (s_currentMode == GL_QUADS)
-    {
-        int quadCount = s_primitiveVertexCount / 4;
-        for (int i = 0; i < quadCount; i++)
-        {
-            uint16_t base = static_cast<uint16_t>(s_primitiveStartVertex + i * 4);
-            s_indexSpan.data[s_totalIndexCount++] = base + 0;
-            s_indexSpan.data[s_totalIndexCount++] = base + 1;
-            s_indexSpan.data[s_totalIndexCount++] = base + 2;
-            s_indexSpan.data[s_totalIndexCount++] = base + 0;
-            s_indexSpan.data[s_totalIndexCount++] = base + 2;
-            s_indexSpan.data[s_totalIndexCount++] = base + 3;
-        }
-    }
-    else
-    {
-        GL3_ASSERT(false);
+    case GL_TRIANGLES:
+        EmitTRIANGLES(vertexStart, vertexEnd);
+        break;
+
+    case GL_QUADS:
+        EmitQUADS(vertexStart, vertexEnd);
+        break;
+
+    case GL_QUAD_STRIP:
+        EmitQUAD_STRIP(vertexStart, vertexEnd);
+        break;
+
+    default:
+        // don't sweep these under the rug
+        platformError("Unsupported primitive type 0x%04x", s_currentMode);
+        break;
     }
 }
 
