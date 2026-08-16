@@ -141,8 +141,92 @@ static void R_BloodStream(float *org, float *dir, int pcolor, int speed)
         return s_engineEfx.R_BloodStream(org, dir, pcolor, speed);
     }
 
-    // uses particles
-    NOT_IMPL();
+    Vector3 origin{ org };
+    Vector3 direction{ dir };
+    VectorNormalize(direction);
+
+    float clientTime = g_engfuncs.GetClientTime();
+
+    float drop = 0.05f;
+    int speedDecay = speed;
+
+    for (int i = 0; i < 100; i++)
+    {
+        particle_t *particle = particleAllocate();
+        if (!particle)
+        {
+            return;
+        }
+
+        particle->die = clientTime + 2.0f;
+
+        particle->color = static_cast<short>(pcolor + randomInt(0, 9));
+        particle->packedColor = 0;
+        particle->type = pt_vox_grav;
+        particle->org = origin;
+
+        Vector3 velDir = direction;
+        velDir.z -= drop;
+        drop -= 0.005f;
+
+        particle->vel = velDir * static_cast<float>(speedDecay);
+
+        // this doesn't do anything... keeping it anyway for now, many such cases in efx code
+        speedDecay = static_cast<int>((static_cast<float>(speedDecay) - 0.00001f));
+    }
+
+    drop = 0.075f;
+    int splashCount = speed / 5;
+
+    for (int i = 0; i < splashCount; i++)
+    {
+        particle_t *particle = particleAllocate();
+        if (!particle)
+        {
+            return;
+        }
+
+        particle->die = clientTime + 3.0f;
+
+        particle->color = static_cast<short>(pcolor + randomInt(0, 9));
+        particle->packedColor = 0;
+        particle->type = pt_vox_slowgrav;
+        particle->org = origin;
+
+        Vector3 velDir = direction;
+        velDir.z -= drop;
+        drop -= 0.005f;
+
+        float speedScale = randomFloat(0.0f, 1.0f);
+        speedDecay = static_cast<int>(static_cast<float>(speed) * speedScale);
+        float dirScale = speedScale * 1.7f;
+
+        particle->vel = velDir * (dirScale * static_cast<float>(speedDecay));
+
+        for (int j = 0; j < 2; j++)
+        {
+            particle_t *extra = particleAllocate();
+            if (!extra)
+            {
+                return;
+            }
+
+            extra->die = clientTime + 3.0f;
+
+            extra->color = static_cast<short>(pcolor + randomInt(0, 9));
+            extra->packedColor = 0;
+            extra->type = pt_vox_slowgrav;
+
+            extra->org.x = origin.x + randomFloat(-1.0f, 1.0f);
+            extra->org.y = origin.y + randomFloat(-1.0f, 1.0f);
+            extra->org.z = origin.z + randomFloat(-1.0f, 1.0f);
+
+            velDir = direction;
+            velDir.z -= drop;
+
+            extra->vel = velDir * (dirScale * static_cast<float>(speedDecay));
+        }
+    }
 }
 
 static void R_BulletImpactParticles(float *pos)
