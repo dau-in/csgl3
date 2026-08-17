@@ -59,7 +59,7 @@ struct StudioCache
     GLuint indexBuffer;
 
     // needed for when UBOs are not available and we encounter
-    // a model that uses more than 72 bones for skinning...
+    // a model that uses more than MAX_BONES_SM3 bones for skinning...
     int paletteCount;
     StudioBonePalette *palettes;
 };

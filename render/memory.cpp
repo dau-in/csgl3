@@ -17,8 +17,6 @@ struct MemoryBlock
 
 static MemoryBlock s_staticBlock;
 static MemoryBlock s_levelBlock;
-
-static int s_tempCount;
 static MemoryBlock s_tempBlock;
 
 static void InitializeBlock(MemoryBlock &block, int size)
@@ -68,21 +66,20 @@ void memoryLevelFree()
     ResetBlock(s_levelBlock);
 }
 
+uint8_t *memoryTempPtr()
+{
+    return s_tempBlock.ptr;
+}
+
 void *memoryTempAlloc(int size, int alignment)
 {
-    s_tempCount++;
     return AllocateFromBlock(s_tempBlock, size, alignment);
 }
 
-void memoryTempFree(int count)
+void memoryTempFree(uint8_t *ptr)
 {
-    GL3_ASSERT(s_tempCount > 0 && s_tempCount - count >= 0);
-    s_tempCount -= count;
-
-    if (!s_tempCount)
-    {
-        ResetBlock(s_tempBlock);
-    }
+    GL3_ASSERT(ptr <= s_tempBlock.ptr);
+    s_tempBlock.ptr = ptr;
 }
 
 }

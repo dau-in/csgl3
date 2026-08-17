@@ -11,7 +11,7 @@
 
 // used when ubos are not available
 // lower than MAXSTUDIOBONES so we can fit into 256 constant registers
-#define MAX_BONES_SM3 72
+#define MAX_BONES_SM3 75
 
 // there's probably an engine constant for this...
 #define STUDIO_MAX_ELIGHTS 3

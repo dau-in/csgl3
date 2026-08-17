@@ -23,226 +23,252 @@ struct NameField
 
 constexpr uint16_t NameFieldMagic = (0 << 0) | (3 << 8);
 
-struct StudioVertexFat
+// intrinsic not worth it since we can't POPCNT anyway
+static int PopCount(uint32_t word)
 {
-    Vector3 position;
-    Vector2 texCoord;
-    float bone;
-    Vector3 normal;
-    Vector3 smoothNormal;
+    word = word - ((word >> 1) & 0x55555555u);
+    word = (word & 0x33333333u) + ((word >> 2) & 0x33333333u);
+    word = (word + (word >> 4)) & 0x0f0f0f0fu;
+    return static_cast<int>((word * 0x01010101u) >> 24);
+}
+
+// std::bitset won't do because of its nontrivial constructor
+struct BoneSet
+{
+    static constexpr int WordBits = 32;
+    static constexpr int WordCount = MAXSTUDIOBONES / WordBits;
+
+    uint32_t words[WordCount];
+
+    bool Test(int bone) const
+    {
+        GL3_ASSERT(bone >= 0 && bone < MAXSTUDIOBONES);
+        return (words[bone / WordBits] & (1u << (bone % WordBits))) != 0;
+    }
+
+    void Set(int bone)
+    {
+        GL3_ASSERT(bone >= 0 && bone < MAXSTUDIOBONES);
+        words[bone / WordBits] |= (1u << (bone % WordBits));
+    }
+
+    int Count() const
+    {
+        int result = 0;
+
+        for (int i = 0; i < WordCount; i++)
+        {
+            result += PopCount(words[i]);
+        }
+
+        return result;
+    }
+
+    // returns (this | other).Count()
+    int OrCount(const BoneSet &other) const
+    {
+        int result = 0;
+
+        for (int i = 0; i < WordCount; i++)
+        {
+            result += PopCount(words[i] | other.words[i]);
+        }
+
+        return result;
+    }
+
+    void Or(const BoneSet &other)
+    {
+        for (int i = 0; i < BoneSet::WordCount; i++)
+        {
+            words[i] |= other.words[i];
+        }
+    }
+};
+
+// fat version of StudioSubMesh for building
+struct BuildMesh : StudioSubMesh
+{
+    BoneSet bones;
+    int vertexStart;
+    int vertexCount;
 };
 
 struct BuildBuffer
 {
-    unsigned vertexCount;
-    StudioVertexFat *vertices;
-    unsigned indexCount;
-    GLuint *indices;
+    StudioVertex *vertices;
+    int vertexCount;
+
+    GLushort *indices;
+    int indexCount;
+
+    BuildMesh *meshes;
+    int meshCount;
+
+    // current base vertex, only increment when we actually have to
+    int baseVertex;
 };
 
-static unsigned ParseTricmds(BuildBuffer *build,
-    short *tricmds,
-    Vector3 *vertices,
-    Vector3 *normals,
-    byte *vertinfo,
-    float s,
-    float t,
-    bool *isSkinnedBone,
-    Vector3 *smoothNormals)
+struct BoneRemap
 {
-    unsigned baseVertex = build->vertexCount;
-    unsigned startIndexCount = build->indexCount;
+    uint8_t bones[MAXSTUDIOBONES];
+};
 
+// tricmd vertex
+struct Vertex
+{
+    short position;
+    short normal;
+    short s, t;
+};
+
+struct Triangle
+{
+    Vertex verts[3];
+};
+
+struct MeshData
+{
+    // pulled from the submodel
+    Vector3 *positions;
+    Vector3 *normals;
+    byte *vertinfo;
+
+    // computed by us per submodel
+    Vector3 *smoothNormals;
+
+    // per mesh
+    Vector2 texCoordScale;
+};
+
+struct BuildSubModel
+{
+    StudioSubModel *model;
+    int firstSubMesh;
+    int subMeshCount;
+};
+
+// read tricmds into triangle soup
+static void MakeTriangleSoup(Triangle *soup, const short *tricmds)
+{
     while (1)
     {
-        int value = *tricmds++;
-        if (!value)
+        int count = *tricmds++;
+        if (!count)
+        {
             break;
+        }
 
         bool trifan = false;
 
-        if (value < 0)
+        if (count < 0)
         {
             trifan = true;
-            value = -value;
+            count = -count;
         }
 
-        unsigned count = (unsigned)value;
+        const Vertex *vertices = reinterpret_cast<const Vertex *>(tricmds);
+        tricmds += (4 * count);
 
-        unsigned offset = build->vertexCount;
-        build->vertexCount += count;
-
-        StudioVertexFat *vert = &build->vertices[offset];
-
-        for (unsigned l = 0; l < count; l++)
-        {
-            vert->position = vertices[tricmds[0]];
-            vert->normal = normals[tricmds[1]];
-
-            // FIXME: bruh... store the vertex index in smoothNormal
-            // for now so we can assign it after normalization, should
-            // refactor all of this later
-            smoothNormals[tricmds[0]] += vert->normal;
-            vert->smoothNormal.x = tricmds[0];
-
-            vert->texCoord.x = s * tricmds[2];
-            vert->texCoord.y = t * tricmds[3];
-
-            vert->bone = vertinfo[tricmds[0]];
-
-            isSkinnedBone[vertinfo[tricmds[0]]] = true;
-
-            tricmds += 4;
-            vert++;
-        }
-
-        unsigned indexBase = offset - baseVertex;
         if (trifan)
         {
-            for (unsigned i = 2; i < count; i++)
+            for (int i = 2; i < count; i++)
             {
-                build->indices[build->indexCount++] = indexBase;
-                build->indices[build->indexCount++] = indexBase + i - 1;
-                build->indices[build->indexCount++] = indexBase + i;
+                Triangle *triangle = soup++;
+                triangle->verts[0] = vertices[0];
+                triangle->verts[1] = vertices[i - 1];
+                triangle->verts[2] = vertices[i];
             }
         }
         else
         {
-            for (unsigned i = 2; i < count; i++)
+            for (int i = 2; i < count; i++)
             {
                 if (!(i % 2))
                 {
-                    build->indices[build->indexCount++] = indexBase + i - 2;
-                    build->indices[build->indexCount++] = indexBase + i - 1;
-                    build->indices[build->indexCount++] = indexBase + i;
+                    Triangle *triangle = soup++;
+                    triangle->verts[0] = vertices[i - 2];
+                    triangle->verts[1] = vertices[i - 1];
+                    triangle->verts[2] = vertices[i];
                 }
                 else
                 {
-                    build->indices[build->indexCount++] = indexBase + i - 1;
-                    build->indices[build->indexCount++] = indexBase + i - 2;
-                    build->indices[build->indexCount++] = indexBase + i;
+                    Triangle *triangle = soup++;
+                    triangle->verts[0] = vertices[i - 1];
+                    triangle->verts[1] = vertices[i - 2];
+                    triangle->verts[2] = vertices[i];
                 }
             }
         }
     }
-
-    unsigned meshVertexCount = build->vertexCount - baseVertex;
-    unsigned meshIndexCount = build->indexCount - startIndexCount;
-
-    // FIXME: why is this still in? doubt it'll improve performance, but profile and remove
-    if (meshVertexCount > 0 && meshIndexCount > 0)
-    {
-        std::vector<unsigned> remap(meshVertexCount);
-        size_t uniqueVertexCount = meshopt_generateVertexRemap(
-            remap.data(),
-            &build->indices[startIndexCount],
-            meshIndexCount,
-            &build->vertices[baseVertex],
-            meshVertexCount,
-            sizeof(StudioVertexFat));
-
-        std::vector<unsigned> remappedIndices(meshIndexCount);
-        meshopt_remapIndexBuffer(
-            remappedIndices.data(),
-            &build->indices[startIndexCount],
-            meshIndexCount,
-            remap.data());
-
-        std::vector<StudioVertexFat> remappedVertices(uniqueVertexCount);
-        meshopt_remapVertexBuffer(
-            remappedVertices.data(),
-            &build->vertices[baseVertex],
-            meshVertexCount,
-            sizeof(StudioVertexFat),
-            remap.data());
-
-        meshopt_optimizeVertexCache(
-            remappedIndices.data(),
-            remappedIndices.data(),
-            meshIndexCount,
-            uniqueVertexCount);
-
-        uniqueVertexCount = meshopt_optimizeVertexFetch(
-            remappedVertices.data(),
-            remappedIndices.data(),
-            meshIndexCount,
-            remappedVertices.data(),
-            uniqueVertexCount,
-            sizeof(StudioVertexFat));
-
-        memcpy(&build->vertices[baseVertex], remappedVertices.data(), uniqueVertexCount * sizeof(StudioVertexFat));
-        memcpy(&build->indices[startIndexCount], remappedIndices.data(), meshIndexCount * sizeof(unsigned));
-
-        build->vertexCount = baseVertex + (unsigned)uniqueVertexCount;
-    }
-
-    return baseVertex;
 }
 
-static int CountVertsTricmds(short *tricmds)
+// union of every bone the triangle skins
+static BoneSet TriangleBoneSet(const Triangle &triangle, const byte *vertinfo)
 {
-    int result = 0;
+    BoneSet bones{};
 
-    while (1)
+    for (const Vertex &vert : triangle.verts)
     {
-        int value = *tricmds++;
-        if (!value)
-            break;
-
-        if (value < 0)
-            value = -value;
-
-        result += value;
-
-        tricmds += (4 * value);
+        bones.Set(vertinfo[vert.position]);
     }
 
-    return result;
+    return bones;
 }
 
-static int CountVerts(studiohdr_t *header)
+// union of every bone the soup skins
+static BoneSet SoupBoneSet(const Triangle *soup, int triangleCount, const byte *vertinfo)
 {
-    int total_verts = 0;
+    BoneSet bones{};
 
-    mstudiobodyparts_t *bodyparts = (mstudiobodyparts_t *)((byte *)header + header->bodypartindex);
-
-    for (int i = 0; i < header->numbodyparts; i++)
+    for (int i = 0; i < triangleCount; i++)
     {
-        mstudiobodyparts_t *bodypart = &bodyparts[i];
-        mstudiomodel_t *models = (mstudiomodel_t *)((byte *)header + bodypart->modelindex);
-
-        for (int j = 0; j < bodypart->nummodels; j++)
+        for (const Vertex &vert : soup[i].verts)
         {
-            mstudiomodel_t *submodel = &models[j];
-            mstudiomesh_t *meshes = (mstudiomesh_t *)((byte *)header + submodel->meshindex);
-
-            for (int k = 0; k < submodel->nummesh; k++)
-            {
-                mstudiomesh_t *mesh = &meshes[k];
-                short *tricmds = (short *)((byte *)header + mesh->triindex);
-                total_verts += CountVertsTricmds(tricmds);
-            }
+            bones.Set(vertinfo[vert.position]);
         }
     }
 
-    return total_verts;
+    return bones;
 }
 
-static void PackIndices(uint32_t *indices, unsigned count)
+// use sorted bones as a key for sorting
+static uint32_t TriangleBoneKey(const Triangle &triangle, const byte *vertinfo)
 {
-    unsigned i = 0, j = 0;
-
-    while (i + 1 < count)
+    uint8_t bones[3];
+    for (int i = 0; i < 3; i++)
     {
-        uint32_t low = indices[i++];
-        uint32_t high = indices[i++];
-        indices[j++] = low | (high << 16);
+        bones[i] = vertinfo[triangle.verts[i].position];
     }
 
-    if (count & 1u)
+    if (bones[0] > bones[1])
     {
-        indices[j] = indices[i];
+        std::swap(bones[0], bones[1]);
     }
+
+    if (bones[1] > bones[2])
+    {
+        std::swap(bones[1], bones[2]);
+    }
+
+    if (bones[0] > bones[1])
+    {
+        std::swap(bones[0], bones[1]);
+    }
+
+    return (bones[0] << 16) | (bones[1] << 8) | bones[2];
+}
+
+// group triangles that skin the same bones together (also
+// tested without this, palette count blows up with some models)
+static void SortTriangleSoup(Triangle *soup, int triangleCount, const byte *vertinfo)
+{
+    auto compare = [vertinfo](const Triangle &a, const Triangle &b)
+    {
+        return TriangleBoneKey(a, vertinfo) < TriangleBoneKey(b, vertinfo);
+    };
+
+    std::sort(soup, soup + triangleCount, compare);
 }
 
 static void PackNormal(int8_t (&dest)[4], const Vector3 &source)
@@ -257,37 +283,352 @@ static void PackNormal(int8_t (&dest)[4], const Vector3 &source)
     dest[3] = 0;
 }
 
-static void PackVertices(StudioVertexFat *source, int count)
+// running meshoptimizer afterwards is quite important now that we're raping the meshes for processing
+// does the whole meshoptimizer juggle, returns unique vertex count and fills the index buffer
+static int OptimizeMesh(StudioVertex *vertices, int vertexCount, unsigned *indices, unsigned *remap)
 {
-    static_assert(sizeof(StudioVertex) < sizeof(StudioVertexFat), "wtf");
-    StudioVertex *dest = (StudioVertex *)source;
+    size_t uniqueVertexCount = meshopt_generateVertexRemap(
+        remap,
+        nullptr,
+        vertexCount,
+        vertices,
+        vertexCount,
+        sizeof(*vertices));
 
-    for (int i = 0; i < count; i++)
+    meshopt_remapIndexBuffer(
+        indices,
+        nullptr,
+        vertexCount,
+        remap);
+
+    meshopt_remapVertexBuffer(
+        vertices,
+        vertices,
+        vertexCount,
+        sizeof(*vertices),
+        remap);
+
+    meshopt_optimizeVertexCache(
+        indices,
+        indices,
+        vertexCount,
+        uniqueVertexCount);
+
+    uniqueVertexCount = meshopt_optimizeVertexFetch(
+        vertices,
+        indices,
+        vertexCount,
+        vertices,
+        uniqueVertexCount,
+        sizeof(*vertices));
+
+    return static_cast<int>(uniqueVertexCount);
+}
+
+static void AppendBuildMesh(
+    BuildBuffer &build,
+    const MeshData &data,
+    const Triangle *triangles,
+    int triangleCount,
+    const BoneSet &bones,
+    int skinref)
+{
+    GL3_ASSERT(triangleCount > 0);
+
+    TempMemoryScope temp;
+
+    int indexStart = build.indexCount;
+    int vertexStart = build.vertexCount;
+
+    // get at the underlying vertcies
+    static_assert(sizeof(Vertex) * 3 == sizeof(Triangle), "bruh");
+    const Vertex *soup = &triangles[0].verts[0];
+    int soupSize = triangleCount * 3;
+
+    for (int i = 0; i < soupSize; i++)
     {
-        StudioVertexFat from = source[i];
-        StudioVertex &to = dest[i];
+        const Vertex &trivert = soup[i];
+        StudioVertex vert{};
 
-        to.position = from.position;
-        to.texCoord = from.texCoord;
-        to.bone = from.bone;
-        PackNormal(to.normal, from.normal);
-        PackNormal(to.smoothNormal, from.smoothNormal);
+        vert.position = data.positions[trivert.position];
+        PackNormal(vert.normal, data.normals[trivert.normal]);
+        PackNormal(vert.smoothNormal, data.smoothNormals[trivert.position]);
+
+        vert.texCoord.x = data.texCoordScale.x * trivert.s;
+        vert.texCoord.y = data.texCoordScale.y * trivert.t;
+
+        uint8_t bone = data.vertinfo[trivert.position];
+        vert.bone = bone;
+
+        build.vertices[build.vertexCount++] = vert;
     }
+
+    // one index per soup vertex
+    unsigned *indices = temp.Alloc<unsigned>(soupSize);
+    unsigned *remap = temp.Alloc<unsigned>(soupSize);
+
+    int uniqueVertexCount = OptimizeMesh(&build.vertices[vertexStart], soupSize, indices, remap);
+
+    // should never happen, but check for completeness sake
+    int maxVertexCount = UINT16_MAX + 1u;
+    if (uniqueVertexCount > maxVertexCount)
+    {
+        // FIXME: completely useless error message
+        platformError("Too many vertices in a mesh (%d, max %d)", uniqueVertexCount, maxVertexCount);
+    }
+
+    // update vertex count to deduped value
+    build.vertexCount = vertexStart + uniqueVertexCount;
+
+    if (build.vertexCount - build.baseVertex > maxVertexCount)
+    {
+        // this mesh won't fit at the current one
+        build.baseVertex = vertexStart;
+    }
+
+    // append indices remapped onto baseVertex
+    int delta = vertexStart - build.baseVertex;
+
+    for (int i = 0; i < soupSize; i++)
+    {
+        build.indices[build.indexCount++] = static_cast<GLushort>(indices[i] + delta);
+    }
+
+    BuildMesh &dest = build.meshes[build.meshCount++];
+    dest.skinref = skinref;
+    dest.indexOffsetInBytes = static_cast<unsigned>(indexStart * sizeof(GLushort));
+    dest.indexCount = static_cast<unsigned>(build.indexCount - indexStart);
+    dest.baseVertex = static_cast<unsigned>(build.baseVertex);
+    dest.bones = bones;
+    dest.vertexStart = vertexStart;
+    dest.vertexCount = uniqueVertexCount;
+}
+
+// splits meshes if they use too many bones
+static void MakeBuildMeshes(
+    BuildBuffer &build,
+    const MeshData &source,
+    Triangle *triangleSoup,
+    int triangleCount,
+    int maxBones,
+    int skinref)
+{
+    GL3_ASSERT(triangleCount > 0);
+
+    BoneSet meshBones = SoupBoneSet(triangleSoup, triangleCount, source.vertinfo);
+    if (meshBones.Count() <= maxBones)
+    {
+        // no need to do any of this shit, thank fuck for that
+        AppendBuildMesh(build, source, triangleSoup, triangleCount, meshBones, skinref);
+        return;
+    }
+
+    SortTriangleSoup(triangleSoup, triangleCount, source.vertinfo);
+
+    int chunkStart = 0;
+    BoneSet chunkBones{};
+
+    for (int i = 0; i < triangleCount; i++)
+    {
+        BoneSet triangleBones = TriangleBoneSet(triangleSoup[i], source.vertinfo);
+
+        BoneSet combinedBones = chunkBones;
+        combinedBones.Or(triangleBones);
+
+        if (combinedBones.Count() > maxBones)
+        {
+            GL3_ASSERT(i > chunkStart);
+            AppendBuildMesh(build, source, &triangleSoup[chunkStart], i - chunkStart, chunkBones, skinref);
+            chunkStart = i;
+            chunkBones = triangleBones;
+        }
+        else
+        {
+            chunkBones = combinedBones;
+        }
+    }
+
+    GL3_ASSERT(chunkStart < triangleCount);
+    AppendBuildMesh(build, source, &triangleSoup[chunkStart], triangleCount - chunkStart, chunkBones, skinref);
+}
+
+static void AccumulateSmoothNormals(const short *tricmds, const Vector3 *normals, Vector3 *smoothNormals)
+{
+    while (1)
+    {
+        int count = *tricmds++;
+        if (!count)
+        {
+            break;
+        }
+
+        if (count < 0)
+        {
+            count = -count;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            smoothNormals[tricmds[0]] += normals[tricmds[1]];
+            tricmds += 4;
+        }
+    }
+}
+
+static bool PaletteFits(const BoneSet &palette, const BoneSet &bones, int maxBones)
+{
+    return palette.OrCount(bones) <= maxBones;
+}
+
+// build palettes and assign their indices to meshes
+static int BuildBonePalettes(BuildMesh *meshes, int meshCount, BoneSet *palettes, int maxBones)
+{
+    int paletteCount = 0;
+    int current = -1;
+
+    for (int i = 0; i < meshCount; i++)
+    {
+        BuildMesh &mesh = meshes[i];
+
+        if (current < 0 || !PaletteFits(palettes[current], mesh.bones, maxBones))
+        {
+            current = -1;
+
+            for (int j = 0; j < paletteCount; j++)
+            {
+                if (PaletteFits(palettes[j], mesh.bones, maxBones))
+                {
+                    current = j;
+                    break;
+                }
+            }
+
+            if (current < 0)
+            {
+                current = paletteCount++;
+            }
+        }
+
+        palettes[current].Or(mesh.bones);
+        mesh.bonePalette = current;
+    }
+
+    GL3_ASSERT(paletteCount > 0);
+    return paletteCount;
+}
+
+static void AssignBonePalettes(StudioCache *cache, BuildBuffer &build, int maxBones)
+{
+    TempMemoryScope temp;
+
+    // overkill allocation since we possibly can't know
+    BoneSet *paletteSets = temp.Alloc<BoneSet>(build.meshCount);
+
+    cache->paletteCount = BuildBonePalettes(build.meshes, build.meshCount, paletteSets, maxBones);
+    cache->palettes = memoryStaticAlloc<StudioBonePalette>(cache->paletteCount);
+
+    BoneRemap *boneRemaps = temp.Alloc<BoneRemap>(cache->paletteCount);
+
+    for (int i = 0; i < cache->paletteCount; i++)
+    {
+        GL3_ASSERT(paletteSets[i].Count() <= maxBones);
+
+        StudioBonePalette &palette = cache->palettes[i];
+        BoneRemap &boneRemap = boneRemaps[i];
+
+        for (int j = 0; j < MAXSTUDIOBONES; j++)
+        {
+            if (paletteSets[i].Test(j))
+            {
+                boneRemap.bones[j] = static_cast<uint8_t>(palette.boneCount);
+                palette.bones[palette.boneCount++] = static_cast<uint8_t>(j);
+            }
+        }
+    }
+
+    // update vertex bone indices
+    for (int i = 0; i < build.meshCount; i++)
+    {
+        const BuildMesh &mesh = build.meshes[i];
+
+        int paletteIndex = mesh.bonePalette;
+        GL3_ASSERT(paletteIndex >= 0 && paletteIndex < cache->paletteCount);
+        const BoneRemap &boneRemap = boneRemaps[paletteIndex];
+
+        int begin = mesh.vertexStart;
+        int end = begin + mesh.vertexCount;
+
+        for (int j = begin; j < end; j++)
+        {
+            float &bone = build.vertices[j].bone;
+            bone = boneRemap.bones[static_cast<int>(bone)];
+        }
+    }
+}
+
+static void CountSubModelsAndTriangles(studiohdr_t *header, mstudiobodyparts_t *bodyparts, int &totalSubModels, int &totalTriangles)
+{
+    totalSubModels = 0;
+    totalTriangles = 0;
+
+    for (int i = 0; i < header->numbodyparts; i++)
+    {
+        mstudiobodyparts_t *bodypart = &bodyparts[i];
+        mstudiomodel_t *models = (mstudiomodel_t *)((byte *)header + bodypart->modelindex);
+
+        totalSubModels += bodypart->nummodels;
+
+        for (int j = 0; j < bodypart->nummodels; j++)
+        {
+            mstudiomodel_t *submodel = &models[j];
+            mstudiomesh_t *meshes = (mstudiomesh_t *)((byte *)header + submodel->meshindex);
+
+            for (int k = 0; k < submodel->nummesh; k++)
+            {
+                // FIXME: does studiomdl actually write numtris? bruh
+                totalTriangles += meshes[k].numtris;
+            }
+        }
+    }
+}
+
+// returns memory allocated with the provided scope
+static Vector3 *ComputeSmoothNormals(TempMemoryScope &temp, studiohdr_t *header, mstudiomodel_t *submodel)
+{
+    mstudiomesh_t *meshes = (mstudiomesh_t *)((byte *)header + submodel->meshindex);
+    Vector3 *normals = (Vector3 *)((byte *)header + submodel->normindex);
+
+    Vector3 *smoothNormals = temp.Alloc<Vector3>(submodel->numverts);
+
+    for (int k = 0; k < submodel->nummesh; k++)
+    {
+        mstudiomesh_t *mesh = &meshes[k];
+        short *tricmds = (short *)((byte *)header + mesh->triindex);
+        AccumulateSmoothNormals(tricmds, normals, smoothNormals);
+    }
+
+    for (int k = 0; k < submodel->numverts; k++)
+    {
+        VectorNormalize(smoothNormals[k]);
+    }
+
+    return smoothNormals;
 }
 
 static void BuildStudioVertexBuffer(StudioCache *cache, model_t *model, studiohdr_t *header)
 {
-    int total_verts = CountVerts(header);
+    mstudiobodyparts_t *bodyparts = (mstudiobodyparts_t *)((byte *)header + header->bodypartindex);
+
+    // count total submodels and triangles in the model for allocations
+    int totalSubModels, totalTriangles;
+    CountSubModelsAndTriangles(header, bodyparts, totalSubModels, totalTriangles);
 
     TempMemoryScope temp;
 
-    BuildBuffer build;
-    build.vertexCount = 0;
-    build.vertices = temp.Alloc<StudioVertexFat>(total_verts);
-    build.indexCount = 0;
-    build.indices = temp.Alloc<GLuint>(total_verts * 3);
-
-    mstudiobodyparts_t *bodyparts = (mstudiobodyparts_t *)((byte *)header + header->bodypartindex);
+    BuildBuffer build{};
+    build.vertices = temp.Alloc<StudioVertex>(3 * totalTriangles);
+    build.indices = temp.Alloc<GLushort>(3 * totalTriangles);
+    build.meshes = temp.Alloc<BuildMesh>(totalTriangles); // way too big
 
     studiohdr_t *textureheader = studioTextureHeader(model, header);
     short *skins = (short *)((byte *)textureheader + textureheader->skinindex);
@@ -295,11 +636,10 @@ static void BuildStudioVertexBuffer(StudioCache *cache, model_t *model, studiohd
 
     cache->bodyparts = memoryStaticAlloc<StudioBodypart>(header->numbodyparts);
 
-    // keep track of bones used for skinning
-    bool isSkinnedBone[MAXSTUDIOBONES]{};
+    int maxBones = GLAD_GL_ARB_uniform_buffer_object ? MAXSTUDIOBONES : MAX_BONES_SM3;
 
-    // only increment the base vertex when we actually have to
-    unsigned baseVertex = 0;
+    int subModelCount = 0;
+    BuildSubModel *subModels = temp.Alloc<BuildSubModel>(totalSubModels);
 
     for (int i = 0; i < header->numbodyparts; i++)
     {
@@ -314,18 +654,17 @@ static void BuildStudioVertexBuffer(StudioCache *cache, model_t *model, studiohd
             mstudiomodel_t *submodel = &models[j];
             mstudiomesh_t *meshes = (mstudiomesh_t *)((byte *)header + submodel->meshindex);
 
-            Vector3 *vertices = (Vector3 *)((byte *)header + submodel->vertindex);
-            Vector3 *normals = (Vector3 *)((byte *)header + submodel->normindex);
-
-            byte *vertinfo = (byte *)((byte *)header + submodel->vertinfoindex);
-
-            StudioSubModel *mem_model = &mem_bodypart->models[j];
-            mem_model->subMeshes = memoryStaticAlloc<StudioSubMesh>(submodel->nummesh);
-            mem_model->subMeshCount = submodel->nummesh;
-
             // temporay working memory for computing smooth normals for glowshell
-            Vector3 *smoothNormals = temp.Alloc<Vector3>(submodel->numverts);
-            unsigned firstVertex = build.vertexCount;
+            TempMemoryScope submodelTemp;
+
+            // most of the mesh data is per submodel, so set it up here
+            MeshData data{};
+            data.positions = (Vector3 *)((byte *)header + submodel->vertindex);
+            data.normals = (Vector3 *)((byte *)header + submodel->normindex);
+            data.vertinfo = (byte *)((byte *)header + submodel->vertinfoindex);
+            data.smoothNormals = ComputeSmoothNormals(submodelTemp, header, submodel);
+
+            int meshStart = build.meshCount;
 
             for (int k = 0; k < submodel->nummesh; k++)
             {
@@ -333,89 +672,44 @@ static void BuildStudioVertexBuffer(StudioCache *cache, model_t *model, studiohd
                 mstudiotexture_t *texture = &textures[skins[mesh->skinref]];
                 short *tricmds = (short *)((byte *)header + mesh->triindex);
 
-                float s = 1.0f / (float)texture->width;
-                float t = 1.0f / (float)texture->height;
+                // NOTE: this assumes that all skingroup textures are the same size
+                data.texCoordScale = Vector2{
+                    1.0f / (float)texture->width,
+                    1.0f / (float)texture->height
+                };
 
-                unsigned index_offset = build.indexCount;
-                unsigned usedBase = ParseTricmds(&build, tricmds, vertices, normals, vertinfo, s, t, isSkinnedBone, smoothNormals);
+                // temporary working memory for the traingle soup...
+                TempMemoryScope meshTemp;
+                Triangle *triangleSoup = meshTemp.Alloc<Triangle>(mesh->numtris);
+                MakeTriangleSoup(triangleSoup, tricmds);
 
-                if (build.vertexCount - baseVertex > UINT16_MAX + 1u)
-                {
-                    // this mesh won't fit at the current one
-                    baseVertex = usedBase;
-                }
-
-                // remap indices onto baseVertex
-                unsigned delta = usedBase - baseVertex;
-                if (delta)
-                {
-                    for (unsigned n = index_offset; n < build.indexCount; n++)
-                    {
-                        build.indices[n] += delta;
-                    }
-                }
-
-                StudioSubMesh *mem_mesh = &mem_model->subMeshes[k];
-                mem_mesh->bonePalette = 0;
-                mem_mesh->skinref = mesh->skinref;
-                mem_mesh->indexOffsetInBytes = index_offset * sizeof(GLushort);
-                mem_mesh->indexCount = build.indexCount - index_offset;
-                mem_mesh->baseVertex = baseVertex;
+                MakeBuildMeshes(build, data, triangleSoup, mesh->numtris, maxBones, mesh->skinref);
             }
 
-            for (int k = 0; k < submodel->numverts; k++)
-            {
-                VectorNormalize(smoothNormals[k]);
-            }
-
-            for (unsigned k = firstVertex; k < build.vertexCount; k++)
-            {
-                StudioVertexFat &vertex = build.vertices[k];
-                vertex.smoothNormal = smoothNormals[static_cast<short>(vertex.smoothNormal.x)];
-            }
+            BuildSubModel &dest = subModels[subModelCount++];
+            dest.model = &mem_bodypart->models[j];
+            dest.firstSubMesh = meshStart;
+            dest.subMeshCount = build.meshCount - meshStart;
         }
     }
 
-    // temp stub for bone palettes...
-    cache->paletteCount = 1;
-    cache->palettes = memoryStaticAlloc<StudioBonePalette>(cache->paletteCount);
-    StudioBonePalette &palette = cache->palettes[0];
+    AssignBonePalettes(cache, build, maxBones);
 
-    // build a skinned bone remap table so we won't trash
-    // constant registers with unused bone matrices
-    uint8_t boneRemap[MAXSTUDIOBONES];
-    for (int i = 0; i < header->numbones; i++)
+    for (int i = 0; i < subModelCount; i++)
     {
-        if (isSkinnedBone[i])
+        const BuildSubModel &subModel = subModels[i];
+        StudioSubModel *dest = subModel.model;
+
+        dest->subMeshCount = subModel.subMeshCount;
+        dest->subMeshes = memoryStaticAlloc<StudioSubMesh>(subModel.subMeshCount);
+
+        for (int j = 0; j < subModel.subMeshCount; j++)
         {
-            boneRemap[i] = palette.boneCount & 0xff;
-            palette.bones[palette.boneCount++] = i & 0xff;
+            // slice it off
+            StudioSubMesh &mesh = build.meshes[subModel.firstSubMesh + j];
+            dest->subMeshes[j] = mesh;
         }
     }
-
-    // can only hit on SM3 hardware... palettes are a pain in the ass
-    // so not sure if this is ever going to be actually implemented
-    int maxBones = GLAD_GL_ARB_uniform_buffer_object ? MAXSTUDIOBONES : MAX_BONES_SM3;
-    if (palette.boneCount > maxBones)
-    {
-        platformError("Model %s has too many skinned bones (%d, max %d), please open an issue",
-            model->name,
-            palette.boneCount,
-            maxBones);
-    }
-
-    // update vertex bone indices
-    for (unsigned i = 0; i < build.vertexCount; i++)
-    {
-        float &bone = build.vertices[i].bone;
-        bone = boneRemap[static_cast<int>(bone)];
-    }
-
-    // packing vertices afterwards
-    PackVertices(build.vertices, build.vertexCount);
-
-    // why use u32 when u16 do trick..
-    PackIndices(build.indices, build.indexCount);
 
     glGenBuffers(1, &cache->vertexBuffer);
     glBindBuffer(GL_ARRAY_BUFFER, cache->vertexBuffer);

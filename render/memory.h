@@ -11,8 +11,9 @@ void *memoryStaticAlloc(int size, int alignment);
 void *memoryLevelAlloc(int size, int alignment);
 void memoryLevelFree();
 
+uint8_t *memoryTempPtr();
 void *memoryTempAlloc(int size, int alignment);
-void memoryTempFree(int count);
+void memoryTempFree(uint8_t *offset);
 
 template<typename T>
 T *memoryStaticAlloc(int count)
@@ -33,13 +34,17 @@ T *memoryLevelAlloc(int count)
 class TempMemoryScope
 {
 public:
-    TempMemoryScope() = default;
+    TempMemoryScope()
+        : m_ptr{ memoryTempPtr() }
+    {
+    }
+
     TempMemoryScope(const TempMemoryScope &) = delete;
     TempMemoryScope(TempMemoryScope &&) = delete;
 
     ~TempMemoryScope()
     {
-        memoryTempFree(m_count);
+        memoryTempFree(m_ptr);
     }
 
     template<typename T>
@@ -50,15 +55,13 @@ public:
             return nullptr;
         }
 
-        m_count++;
-
         void *result = memoryTempAlloc(count * sizeof(T), alignof(T));
         memset(result, 0, sizeof(T) * count);
         return static_cast<T *>(result);
     }
 
 private:
-    int m_count{};
+    uint8_t *m_ptr{};
 };
 
 }
