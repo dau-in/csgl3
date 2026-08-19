@@ -288,9 +288,50 @@ static void DrawDisk(const Vector3 &source, const Vector3 &delta, float width, f
     NOT_IMPL();
 }
 
+// TE_BEAMCYLINDER: a ring of camera independent quads that expands to its full radius over the
+// lifetime of the beam. delta.z carries the radius and freq is the elapsed time, so freq * delta.z
+// is the current radius. width is the half height of the wall, the quad strip is walked as pairs
+// of top and bottom vertices
 static void DrawCylinder(const Vector3 &source, const Vector3 &delta, float width, float scale, float freq, float speed, int segments)
 {
-    NOT_IMPL();
+    if (segments <= 1)
+    {
+        return;
+    }
+
+    segments = Q_min(segments, NoiseCount);
+
+    float length = Q_max(VectorLength(delta) * 0.01f, 0.5f);
+
+    float div = 1.0f / (float)(segments - 1);
+    float vStep = length * div;
+
+    float vLast = fmodf(freq * speed, 1.0f);
+
+    for (int i = 0; i < segments; i++)
+    {
+        float fraction = (float)i * div;
+        float angle = fraction * 2.0f * F_PI;
+
+        float sine = sinf(angle);
+        float cosine = cosf(angle);
+
+        Vector3 point;
+        point.x = source.x + sine * freq * delta.z;
+        point.y = source.y + cosine * freq * delta.z;
+
+        point.z = source.z + width;
+        g_triapiGL3.Brightness(1.0f);
+        g_triapiGL3.TexCoord2f(1.0f, vLast);
+        g_triapiGL3.Vertex3fv(&point.x);
+
+        point.z = source.z - width;
+        g_triapiGL3.Brightness(0.0f);
+        g_triapiGL3.TexCoord2f(0.0f, vLast);
+        g_triapiGL3.Vertex3fv(&point.x);
+
+        vLast = fmodf(vLast + vStep, 1.0f);
+    }
 }
 
 static void DrawBeamFollow(BEAM &beam, float frametime)

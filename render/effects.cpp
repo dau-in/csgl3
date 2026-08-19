@@ -615,9 +615,36 @@ static BEAM *R_BeamCirclePoints(int type, float *start, float *end, int modelInd
         return s_engineEfx.R_BeamCirclePoints(type, start, end, modelIndex, life, width, amplitude, brightness, speed, startFrame, framerate, r, g, b);
     }
 
-    DebugBeamCall("R_BeamCirclePoints", type, modelIndex, life, width);
-    NOT_IMPL();
-    return {};
+    if (modelIndex < 0)
+    {
+        return nullptr;
+    }
+
+    bool forever = (life == 0.0f);
+
+    BEAM *beam = beamAllocate();
+    if (!beam)
+    {
+        return nullptr;
+    }
+
+    beamSetup(*beam, start, end, modelIndex, life, width, amplitude, brightness, speed);
+
+    // the caller picks the shape, TE_BEAMTORUS / TE_BEAMDISK / TE_BEAMCYLINDER
+    beam->type = type;
+
+    if (forever)
+    {
+        beam->flags |= FBEAM_FOREVER;
+    }
+
+    beam->frameRate = framerate;
+    beam->frame = static_cast<float>(startFrame);
+    beam->r = r;
+    beam->g = g;
+    beam->b = b;
+
+    return beam;
 }
 
 static BEAM *R_BeamEntPoint(int startEnt, float *end, int modelIndex, float life, float width, float amplitude, float brightness, float speed, int startFrame, float framerate, float r, float g, float b)
