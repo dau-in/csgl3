@@ -198,6 +198,28 @@ particle_t *particleAllocate()
     return AllocateParticle(&s_activeParticles);
 }
 
+particle_t *particleAllocateInto(particle_t **head)
+{
+    return AllocateParticle(head);
+}
+
+void particleFreeList(particle_t **head)
+{
+    particle_t *particle = *head;
+
+    while (particle)
+    {
+        particle_t *next = particle->next;
+
+        particle->next = s_freeParticles;
+        s_freeParticles = particle;
+
+        particle = next;
+    }
+
+    *head = nullptr;
+}
+
 particle_t *particleAllocateTracer()
 {
     return AllocateParticle(&s_activeTracers);

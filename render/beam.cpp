@@ -85,6 +85,7 @@ void beamClear()
     for (int i = 0; i < MaxBeams; i++)
     {
         s_beams[i].next = &s_beams[i + 1];
+        s_beams[i].particles = nullptr;
     }
 
     s_beams[MaxBeams - 1].next = nullptr;
@@ -151,6 +152,7 @@ void beamSetup(
 
     beam.flags = 0;
     beam.pFollowModel = nullptr;
+    beam.particles = nullptr;
 }
 
 static void FractalNoise(float *noise, int current)
@@ -374,9 +376,78 @@ static void DrawCylinder(const Vector3 &source, const Vector3 &delta, float widt
     }
 }
 
+// TE_BEAMFOLLOW: a trail of points dropped behind a moving entity, drawn as a chain of quads
+// that thins out and fades towards the tail as the points age out. R_BeamFollow stashes the
+// lifetime of a point in amplitude, which is why it is used as the fade divisor here
 static void DrawBeamFollow(BEAM &beam, float frametime)
 {
-    NOT_IMPL();
+    float clientTime = g_engfuncs.GetClientTime();
+    float life = Q_max(beam.amplitude, 0.01f);
+
+    particleFreeDead(&beam.particles);
+
+    // drop a new point once the entity has moved far enough from the last one
+    if (beam.flags & FBEAM_STARTENTITY)
+    {
+        particle_t *head = beam.particles;
+
+        if (!head || VectorLength(head->org - beam.source) >= 32.0f)
+        {
+            particle_t *particle = particleAllocateInto(&beam.particles);
+            if (particle)
+            {
+                particle->org = beam.source;
+                particle->vel = Vector3{};
+                particle->die = clientTime + life;
+                particle->type = pt_static;
+                particle->color = 0;
+                particle->packedColor = 0;
+                particle->ramp = 0;
+                particle->deathfunc = nullptr;
+                particle->callback = nullptr;
+            }
+        }
+    }
+
+    for (particle_t *current = beam.particles; current && current->next; current = current->next)
+    {
+        particle_t *next = current->next;
+
+        Vector3 screenStart = ScreenTransform(current->org);
+        Vector3 screenEnd = ScreenTransform(next->org);
+
+        Vector3 tmp = screenEnd - screenStart;
+        VectorNormalize(tmp);
+
+        Vector3 normal = (g_state.viewUp * tmp.x) - (g_state.viewRight * tmp.y);
+
+        float fadeStart = Q_max((current->die - clientTime) / life, 0.0f);
+        float fadeEnd = Q_max((next->die - clientTime) / life, 0.0f);
+
+        Vector3 startOffset = normal * (beam.width * fadeStart);
+        Vector3 endOffset = normal * (beam.width * fadeEnd);
+
+        Vector3 v0 = current->org + startOffset;
+        Vector3 v1 = current->org - startOffset;
+        Vector3 v2 = next->org - endOffset;
+        Vector3 v3 = next->org + endOffset;
+
+        g_triapiGL3.Brightness(fadeStart);
+        g_triapiGL3.TexCoord2f(0.0f, 1.0f);
+        g_triapiGL3.Vertex3fv(&v0.x);
+
+        g_triapiGL3.Brightness(fadeStart);
+        g_triapiGL3.TexCoord2f(1.0f, 1.0f);
+        g_triapiGL3.Vertex3fv(&v1.x);
+
+        g_triapiGL3.Brightness(fadeEnd);
+        g_triapiGL3.TexCoord2f(1.0f, 0.0f);
+        g_triapiGL3.Vertex3fv(&v2.x);
+
+        g_triapiGL3.Brightness(fadeEnd);
+        g_triapiGL3.TexCoord2f(0.0f, 0.0f);
+        g_triapiGL3.Vertex3fv(&v3.x);
+    }
 }
 
 static void DrawRing(const Vector3 &source, const Vector3 &delta, float width, float amplitude, float freq, float speed, int segments)
@@ -737,6 +808,9 @@ static void FreeDeadBeams(float clientTime)
         if (current->die < clientTime && !(current->flags & FBEAM_FOREVER))
         {
             BEAM *next = current->next;
+
+            // a beam follow owns its trail, hand it back before recycling the beam
+            particleFreeList(&current->particles);
 
             if (prev)
             {

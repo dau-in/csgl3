@@ -14,8 +14,10 @@ void particleDraw();
 particle_t *particleAllocate();
 particle_t *particleAllocateTracer();
 
-// for beams
+// for beams, which own their particles instead of putting them on the active list
+particle_t *particleAllocateInto(particle_t **head);
 void particleFreeDead(particle_t **head);
+void particleFreeList(particle_t **head);
 
 }
 
