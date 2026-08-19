@@ -19,6 +19,66 @@ static int s_rendermode = -1;
 static cvar_t *r_traceglow;
 static cvar_t *gl3_spritedebug;
 
+// rate limits debug output per key, so one chatty source cannot drown out the others
+static bool ThrottleAllows(const char *key)
+{
+    struct Slot
+    {
+        const char *key;
+        float nextPrint;
+        int burst;
+    };
+
+    static Slot s_slots[16];
+
+    float clientTime = g_engfuncs.GetClientTime();
+
+    Slot *slot = nullptr;
+
+    for (Slot &entry : s_slots)
+    {
+        if (entry.key == key)
+        {
+            slot = &entry;
+            break;
+        }
+    }
+
+    if (!slot)
+    {
+        for (Slot &entry : s_slots)
+        {
+            if (!entry.key)
+            {
+                entry.key = key;
+                entry.nextPrint = 0;
+                entry.burst = 0;
+                slot = &entry;
+                break;
+            }
+        }
+    }
+
+    if (!slot)
+    {
+        // more distinct sprites than slots, not worth caring about
+        return false;
+    }
+
+    if (clientTime >= slot->nextPrint)
+    {
+        slot->nextPrint = clientTime + 1.0f;
+        slot->burst = 0;
+    }
+    else if (slot->burst >= 4)
+    {
+        return false;
+    }
+
+    slot->burst++;
+    return true;
+}
+
 // gl3_spritedebug 1 dumps the sprite entities that make it into the renderer, throttled so it
 // stays readable. if a sprite you expect to see never shows up here it is being dropped before
 // the renderer ever gets it, which is a different problem entirely
@@ -29,21 +89,13 @@ static void DebugSprite(cl_entity_t *entity, const Vector3 &origin, bool culled)
         return;
     }
 
-    static float nextPrint;
-    static int burst;
-
-    float clientTime = g_engfuncs.GetClientTime();
-    if (clientTime >= nextPrint)
-    {
-        nextPrint = clientTime + 1.0f;
-        burst = 0;
-    }
-    else if (burst >= 8)
+    // one budget per sprite rather than one shared budget, otherwise a sprite that is drawn
+    // every single frame (the radio icon, for one) starves out the rare ones we actually want
+    // to see. model names live inside the model struct so the pointer is stable per model
+    if (!ThrottleAllows(entity->model->name))
     {
         return;
     }
-
-    burst++;
 
     g_engfuncs.Con_Printf("[SPR] %s ent %d, movetype %d, aiment %d, origin %.0f %.0f %.0f, mode %d, amt %d, scale %.2f%s\n",
         entity->model->name,
