@@ -17,10 +17,51 @@ static bool s_alphaBlend;
 static int s_rendermode = -1;
 
 static cvar_t *r_traceglow;
+static cvar_t *gl3_spritedebug;
+
+// gl3_spritedebug 1 dumps the sprite entities that make it into the renderer, throttled so it
+// stays readable. if a sprite you expect to see never shows up here it is being dropped before
+// the renderer ever gets it, which is a different problem entirely
+static void DebugSprite(cl_entity_t *entity, const Vector3 &origin, bool culled)
+{
+    if (!gl3_spritedebug || !gl3_spritedebug->value)
+    {
+        return;
+    }
+
+    static float nextPrint;
+    static int burst;
+
+    float clientTime = g_engfuncs.GetClientTime();
+    if (clientTime >= nextPrint)
+    {
+        nextPrint = clientTime + 1.0f;
+        burst = 0;
+    }
+    else if (burst >= 8)
+    {
+        return;
+    }
+
+    burst++;
+
+    g_engfuncs.Con_Printf("[SPR] %s ent %d, movetype %d, aiment %d, origin %.0f %.0f %.0f, mode %d, amt %d, scale %.2f%s\n",
+        entity->model->name,
+        entity->index,
+        entity->curstate.movetype,
+        entity->curstate.aiment,
+        origin.x, origin.y, origin.z,
+        entity->curstate.rendermode,
+        entity->curstate.renderamt,
+        entity->curstate.scale,
+        culled ? ", CULLED" : "");
+}
 
 void spriteInit()
 {
     r_traceglow = g_engfuncs.pfnGetCvarPointer("r_traceglow");
+
+    gl3_spritedebug = g_engfuncs.pfnRegisterVariable("gl3_spritedebug", "0", 0);
 }
 
 void spriteBegin(bool alphaBlend)
@@ -239,6 +280,18 @@ void spriteDraw(cl_entity_t *entity, float blend)
 
     Vector3 origin = entity->origin;
 
+    // sprites parented to another entity (MOVETYPE_FOLLOW + aiment) carry a stale origin of
+    // their own, the position has to come from whatever they are riding on. zombie mods use
+    // this for the flames that stick to a burning player
+    if (entity->curstate.movetype == MOVETYPE_FOLLOW && entity->curstate.aiment > 0)
+    {
+        cl_entity_t *parent = g_engfuncs.GetEntityByIndex(entity->curstate.aiment);
+        if (parent)
+        {
+            origin = parent->origin;
+        }
+    }
+
     if (entity->curstate.body)
     {
         GetAttachmentPoint(origin, entity->curstate.skin, entity->curstate.body);
@@ -264,7 +317,11 @@ void spriteDraw(cl_entity_t *entity, float blend)
         float max_y = Q_max(fabsf(sprite.up), fabsf(sprite.down)) * scale;
         float radius = sqrtf(max_x * max_x + max_y * max_y);
 
-        if (g_state.viewFrustum.CullSphere(origin, radius))
+        bool culled = g_state.viewFrustum.CullSphere(origin, radius);
+
+        DebugSprite(entity, origin, culled);
+
+        if (culled)
         {
             // get culled idiot
             return;
