@@ -346,8 +346,36 @@ static void R_Implosion(float *end, float radius, int count, float life)
         return s_engineEfx.R_Implosion(end, radius, count, life);
     }
 
-    // uses particles
-    NOT_IMPL();
+    Vector3 target{ end };
+
+    float clientTime = g_engfuncs.GetClientTime();
+
+    for (int i = 0; i < count; i++)
+    {
+        particle_t *particle = particleAllocate();
+        if (!particle)
+        {
+            return;
+        }
+
+        // spread the arrival times a little so they do not all land at once
+        float travel = life * randomFloat(0.5f, 1.0f);
+
+        particle->die = clientTime + travel;
+        particle->color = (short)randomInt(0, 255);
+        particle->packedColor = 0;
+        particle->type = pt_static;
+
+        // pick a point on the sphere and fall towards the center
+        float theta = randomFloat(0.0f, 2.0f * F_PI);
+        float z = randomFloat(-1.0f, 1.0f);
+        float ring = sqrtf(Q_max(1.0f - z * z, 0.0f));
+
+        Vector3 direction{ ring * cosf(theta), ring * sinf(theta), z };
+
+        particle->org = target + direction * radius;
+        particle->vel = direction * (-radius / travel);
+    }
 }
 
 static void R_LargeFunnel(float *org, int reverse)
@@ -428,6 +456,8 @@ static void R_ParticleBox(float *mins, float *maxs, unsigned char r, unsigned ch
     NOT_IMPL();
 }
 
+// FIXME: the engine spreads these over a 32x32 grid of directions, this approximates the same
+// shape with an even distribution over the sphere. looks right, but it is not a faithful port
 static void R_ParticleBurst(float *pos, int size, int color, float life)
 {
     if (!g_state.active)
@@ -435,8 +465,32 @@ static void R_ParticleBurst(float *pos, int size, int color, float life)
         return s_engineEfx.R_ParticleBurst(pos, size, color, life);
     }
 
-    // uses particles
-    NOT_IMPL();
+    Vector3 origin{ pos };
+
+    float clientTime = g_engfuncs.GetClientTime();
+
+    for (int i = 0; i < 1024; i++)
+    {
+        particle_t *particle = particleAllocate();
+        if (!particle)
+        {
+            return;
+        }
+
+        particle->die = clientTime + life + randomFloat(-0.5f, 0.5f);
+        particle->color = (short)(color + randomInt(0, 10));
+        particle->packedColor = 0;
+        particle->type = pt_slowgrav;
+
+        float theta = randomFloat(0.0f, 2.0f * F_PI);
+        float z = randomFloat(-1.0f, 1.0f);
+        float ring = sqrtf(Q_max(1.0f - z * z, 0.0f));
+
+        Vector3 direction{ ring * cosf(theta), ring * sinf(theta), z };
+
+        particle->org = origin + direction * (float)size;
+        particle->vel = direction * randomFloat(50.0f, 100.0f);
+    }
 }
 
 static void R_ParticleExplosion(float *org)

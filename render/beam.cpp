@@ -31,9 +31,49 @@ static BEAM *s_activeBeams;
 constexpr int NoiseCount = 128;
 static float s_noise[NoiseCount + 1];
 
+static cvar_t *gl3_beamdebug;
+
 void beamInit()
 {
-    // nothing currently
+    gl3_beamdebug = g_engfuncs.pfnRegisterVariable("gl3_beamdebug", "0", 0);
+}
+
+// gl3_beamdebug 1 reports what each beam is actually drawing, throttled so it stays readable.
+// the sprite name and the radius are the interesting parts when an effect looks wrong
+static void DebugBeam(const BEAM &beam, const model_t *model)
+{
+    if (!gl3_beamdebug || !gl3_beamdebug->value)
+    {
+        return;
+    }
+
+    static float nextPrint;
+    static int burst;
+
+    float clientTime = g_engfuncs.GetClientTime();
+    if (clientTime >= nextPrint)
+    {
+        nextPrint = clientTime + 1.0f;
+        burst = 0;
+    }
+    else if (burst >= 8)
+    {
+        return;
+    }
+
+    burst++;
+
+    g_engfuncs.Con_Printf("[BEAM] type %d, %s, %d frames, segments %d, width %.1f, radius %.1f, freq %.2f, amp %.1f, rgb %.2f %.2f %.2f, bright %.2f\n",
+        beam.type,
+        model->name,
+        beam.frameCount,
+        beam.segments,
+        beam.width,
+        beam.freq * beam.delta.z,
+        beam.freq,
+        beam.amplitude,
+        beam.r, beam.g, beam.b,
+        beam.brightness);
 }
 
 void beamClear()
@@ -369,6 +409,8 @@ static void DrawBeam(BEAM &beam, float frametime)
     {
         return;
     }
+
+    DebugBeam(beam, model);
 
     if (beam.flags & FBEAM_SOLID)
     {
