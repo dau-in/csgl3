@@ -14,7 +14,38 @@ static model_t *s_muzzleflashSprites[3];
 
 static cvar_t *tracerlength;
 
-#define NOT_IMPL() g_engfuncs.Con_Printf("[EFX] %s not implemented", __func__)
+static cvar_t *gl3_efxdebug;
+
+// this used to bitch on every single call, which floods the console on servers that lean on the
+// unimplemented effects (zombie mods and the like). complain once per function instead and keep
+// the noisy version behind gl3_efxdebug for when you actually want to see what is being called
+#define NOT_IMPL() \
+    do \
+    { \
+        static bool bitched; \
+        if (!bitched || (gl3_efxdebug && gl3_efxdebug->value)) \
+            g_engfuncs.Con_Printf("[EFX] %s not implemented\n", __func__); \
+        bitched = true; \
+    } while (0)
+
+// gl3_efxdebug 1 dumps the arguments of the unimplemented beam calls, the model name is the
+// interesting bit as it tells you which effect the server is actually trying to draw
+static void DebugBeamCall(const char *name, int type, int modelIndex, float life, float width)
+{
+    if (!gl3_efxdebug || !gl3_efxdebug->value)
+    {
+        return;
+    }
+
+    model_t *model = g_engineStudio.GetModelByIndex(modelIndex);
+
+    g_engfuncs.Con_Printf("[EFX] %s: type %d, model %s, life %g, width %g\n",
+        name,
+        type,
+        model ? model->name : "<none>",
+        life,
+        width);
+}
 
 // fucked up: when nvgs are on, CL_AllocDlight is called *every frame* to allocate a 0.1 seconds lasting dlight
 // this means that CL_AllocDlight will run out of dlights, and every call to it will iterate through the
@@ -584,6 +615,7 @@ static BEAM *R_BeamCirclePoints(int type, float *start, float *end, int modelInd
         return s_engineEfx.R_BeamCirclePoints(type, start, end, modelIndex, life, width, amplitude, brightness, speed, startFrame, framerate, r, g, b);
     }
 
+    DebugBeamCall("R_BeamCirclePoints", type, modelIndex, life, width);
     NOT_IMPL();
     return {};
 }
@@ -642,6 +674,7 @@ static BEAM *R_BeamEnts(int startEnt, int endEnt, int modelIndex, float life, fl
         return s_engineEfx.R_BeamEnts(startEnt, endEnt, modelIndex, life, width, amplitude, brightness, speed, startFrame, framerate, r, g, b);
     }
 
+    DebugBeamCall("R_BeamEnts", TE_BEAMPOINTS, modelIndex, life, width);
     NOT_IMPL();
     return {};
 }
@@ -685,7 +718,7 @@ static void R_BeamKill(int deadEntity)
         return s_engineEfx.R_BeamKill(deadEntity);
     }
 
-    NOT_IMPL();
+    beamKillDeadBeams(deadEntity);
 }
 
 static BEAM *R_BeamLightning(float *start, float *end, int modelIndex, float life, float width, float amplitude, float brightness, float speed)
@@ -695,6 +728,7 @@ static BEAM *R_BeamLightning(float *start, float *end, int modelIndex, float lif
         return s_engineEfx.R_BeamLightning(start, end, modelIndex, life, width, amplitude, brightness, speed);
     }
 
+    DebugBeamCall("R_BeamLightning", TE_BEAMPOINTS, modelIndex, life, width);
     NOT_IMPL();
     return {};
 }
@@ -742,6 +776,7 @@ static BEAM *R_BeamRing(int startEnt, int endEnt, int modelIndex, float life, fl
         return s_engineEfx.R_BeamRing(startEnt, endEnt, modelIndex, life, width, amplitude, brightness, speed, startFrame, framerate, r, g, b);
     }
 
+    DebugBeamCall("R_BeamRing", TE_BEAMRING, modelIndex, life, width);
     NOT_IMPL();
     return {};
 }
@@ -852,6 +887,8 @@ void effectsInit(efx_api_t *efx_api, engine_studio_api_t *studio)
     s_muzzleflashSprites[2]->needload = 3;
 
     tracerlength = g_engfuncs.pfnGetCvarPointer("tracerlength");
+
+    gl3_efxdebug = g_engfuncs.pfnRegisterVariable("gl3_efxdebug", "0", 0);
 }
 
 }

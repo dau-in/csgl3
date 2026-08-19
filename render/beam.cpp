@@ -611,6 +611,38 @@ static void DrawEntity(cl_entity_t *entity, float frametime)
     }
 }
 
+// beams attached to an entity are not removed when that entity dies, the server has to ask
+// for it explicitly (TE_KILLBEAM -> R_BeamKill). note that beams created with a life of 0 are
+// marked FBEAM_FOREVER and FreeDeadBeams deliberately skips those, so the flag has to go as
+// well or the beam would linger until the level changes
+void beamKillDeadBeams(int deadEntity)
+{
+    float clientTime = g_engfuncs.GetClientTime();
+
+    for (BEAM *beam = s_activeBeams; beam; beam = beam->next)
+    {
+        if (BEAMENT_ENTITY(beam->startEntity) != deadEntity)
+        {
+            continue;
+        }
+
+        beam->flags &= ~(FBEAM_STARTENTITY | FBEAM_ENDENTITY | FBEAM_FOREVER);
+
+        if (beam->type == TE_BEAMFOLLOW)
+        {
+            // the trail is left behind to fade out on its own
+            continue;
+        }
+
+        beam->die = clientTime - 0.1f;
+
+        for (particle_t *particle = beam->particles; particle; particle = particle->next)
+        {
+            particle->die = clientTime - 0.1f;
+        }
+    }
+}
+
 // got confused by valve's shitty code so this was rewritten, in practice should work the same
 static void FreeDeadBeams(float clientTime)
 {

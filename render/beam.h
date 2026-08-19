@@ -22,6 +22,9 @@ void beamSetup(
 
 cl_entity_t *beamGetBeamEntity(int index);
 
+// kill all beams attached to an entity, invoked by R_BeamKill
+void beamKillDeadBeams(int deadEntity);
+
 void beamDraw();
 
 }
