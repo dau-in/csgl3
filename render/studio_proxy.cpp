@@ -343,13 +343,14 @@ void studioProxyInit(struct engine_studio_api_s *studio)
     SetupStudioProxy(studio);
 }
 
-// same idea as the sprite debug: one budget per model so a model drawn every frame cannot
-// drown out the rare one being hunted
-static bool ModelThrottleAllows(const char *key)
+// one budget per entity rather than per model, otherwise several copies of the same model on
+// screen at once (one parachute per player, say) all share a single budget and most of them
+// never get reported
+static bool ModelThrottleAllows(int key)
 {
     struct Slot
     {
-        const char *key;
+        int key;
         float nextPrint;
         int burst;
     };
@@ -420,7 +421,7 @@ static void DebugModel(cl_entity_t *entity)
         return;
     }
 
-    if (!entity->model || !ModelThrottleAllows(entity->model->name))
+    if (!entity->model || !ModelThrottleAllows(entity->index))
     {
         return;
     }
