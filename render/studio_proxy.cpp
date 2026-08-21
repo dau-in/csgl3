@@ -459,6 +459,20 @@ void studioProxyDrawEntity(int flags, cl_entity_t *entity, float blend)
     s_context.entity = entity;
     s_context.blend = blend;
 
+    // a model riding on another entity never gets an origin of its own, it stays at the world
+    // origin, so everything downstream (culling, lighting, the bone setup) has to be told where
+    // the thing it is attached to actually is. zombie mods hang parachutes and the like off
+    // players this way
+    if (entity->curstate.movetype == MOVETYPE_FOLLOW && entity->curstate.aiment > 0)
+    {
+        cl_entity_t *parent = g_engfuncs.GetEntityByIndex(entity->curstate.aiment);
+        if (parent)
+        {
+            entity->origin = parent->origin;
+            entity->curstate.origin = parent->curstate.origin;
+        }
+    }
+
     DebugModel(entity);
 
     if (entity->player)
