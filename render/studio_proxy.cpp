@@ -10,6 +10,8 @@ namespace Render
 
 engine_studio_api_t orig_studio;
 
+static cvar_t *gl3_modeldebug;
+
 #define NOT_IMPL() \
     do \
     { \
@@ -335,8 +337,115 @@ static void SetupStudioProxy(struct engine_studio_api_s *studio)
 
 void studioProxyInit(struct engine_studio_api_s *studio)
 {
+    gl3_modeldebug = g_engfuncs.pfnRegisterVariable("gl3_modeldebug", "0", 0);
+
     studioRenderInit();
     SetupStudioProxy(studio);
+}
+
+// same idea as the sprite debug: one budget per model so a model drawn every frame cannot
+// drown out the rare one being hunted
+static bool ModelThrottleAllows(const char *key)
+{
+    struct Slot
+    {
+        const char *key;
+        float nextPrint;
+        int burst;
+    };
+
+    static Slot s_slots[32];
+
+    float clientTime = g_engfuncs.GetClientTime();
+
+    Slot *slot = nullptr;
+
+    for (Slot &entry : s_slots)
+    {
+        if (entry.key == key)
+        {
+            slot = &entry;
+            break;
+        }
+    }
+
+    if (!slot)
+    {
+        for (Slot &entry : s_slots)
+        {
+            if (!entry.key)
+            {
+                entry.key = key;
+                entry.nextPrint = 0;
+                entry.burst = 0;
+                slot = &entry;
+                break;
+            }
+        }
+    }
+
+    if (!slot)
+    {
+        return false;
+    }
+
+    if (clientTime >= slot->nextPrint)
+    {
+        slot->nextPrint = clientTime + 1.0f;
+        slot->burst = 0;
+    }
+    else if (slot->burst >= 4)
+    {
+        return false;
+    }
+
+    slot->burst++;
+    return true;
+}
+
+// gl3_modeldebug 1 reports studio models as they are drawn. gl3_modeldebug 2 restricts the
+// output to models riding on another entity (MOVETYPE_FOLLOW), which are the interesting ones
+// since the renderer has never handled them
+static void DebugModel(cl_entity_t *entity)
+{
+    if (!gl3_modeldebug || !gl3_modeldebug->value)
+    {
+        return;
+    }
+
+    bool follows = (entity->curstate.movetype == MOVETYPE_FOLLOW) || entity->curstate.aiment;
+
+    if (gl3_modeldebug->value >= 2 && !follows)
+    {
+        return;
+    }
+
+    if (!entity->model || !ModelThrottleAllows(entity->model->name))
+    {
+        return;
+    }
+
+    Vector3 parentOrigin{};
+    bool haveParent = false;
+
+    if (entity->curstate.aiment > 0)
+    {
+        cl_entity_t *parent = g_engfuncs.GetEntityByIndex(entity->curstate.aiment);
+        if (parent)
+        {
+            parentOrigin = parent->origin;
+            haveParent = true;
+        }
+    }
+
+    g_engfuncs.Con_Printf("[MDL] %s ent %d, movetype %d, aiment %d, origin %.0f %.0f %.0f, parent %.0f %.0f %.0f%s\n",
+        entity->model->name,
+        entity->index,
+        entity->curstate.movetype,
+        entity->curstate.aiment,
+        entity->origin.x, entity->origin.y, entity->origin.z,
+        parentOrigin.x, parentOrigin.y, parentOrigin.z,
+        haveParent ? "" : " (sin padre)");
 }
 
 void studioProxyDrawEntity(int flags, cl_entity_t *entity, float blend)
@@ -350,8 +459,7 @@ void studioProxyDrawEntity(int flags, cl_entity_t *entity, float blend)
     s_context.entity = entity;
     s_context.blend = blend;
 
-    GL3_ASSERT(entity->curstate.movetype != MOVETYPE_FOLLOW);
-    GL3_ASSERT(!entity->curstate.aiment);
+    DebugModel(entity);
 
     if (entity->player)
     {
